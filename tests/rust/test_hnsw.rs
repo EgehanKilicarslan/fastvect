@@ -3,11 +3,11 @@
 use fastvect::{HNSWIndex, Point};
 use std::collections::HashMap;
 
-/// Validates cold-start instantiation routines, node linkage transitions,
-/// and entrance matrix scaling within the multi-layer HNSW graph framework.
+/// Architectural topology verification testing graph generation passes, entryway initialization steps,
+/// and bi-directional linkage weaving within a multi-tiered HNSW mesh.
 #[test]
 fn test_hnsw_index_dynamic_insertion_flow() {
-    // Instantiate an independent graph partition index structure with aggressive connection bounds
+    // Spin up an isolated index layer managing strict maximum connection degrees ($M=4$)
     let mut index = HNSWIndex::new(4, 16, 16);
     let mut points_ref = HashMap::new();
 
@@ -25,19 +25,19 @@ fn test_hnsw_index_dynamic_insertion_flow() {
     points_ref.insert(1, p1);
     points_ref.insert(2, p2);
 
-    // Operational Phase 1: Test entry anchor generation on initial system mutation
+    // Lifecycle Phase 1: Assert cold-start registry behaves correctly and pins down the absolute entryway portal
     index.insert(1, &points_ref.get(&1).unwrap().vector, &points_ref);
     assert_eq!(
         index.enter_node,
         Some(1),
-        "Initial node insertion must declare the global entry point anchor"
+        "Cold-start graph deployment must declare the primary vector index as the global entry point link"
     );
 
-    // Operational Phase 2: Insert a secondary vector coordinate to trigger multi-tier routing matrices
+    // Lifecycle Phase 2: Inject adjacent vectors to evaluate multi-tier search execution and vertex cross-stitching
     index.insert(2, &points_ref.get(&2).unwrap().vector, &points_ref);
     assert!(
         index.nodes.contains_key(&2),
-        "Target graph layout register must index the secondary vertex"
+        "The relational graph adjacency registry must store and track the secondary coordinate point"
     );
 
     let inserted_node = index.nodes.get(&2).unwrap();

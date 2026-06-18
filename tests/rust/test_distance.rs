@@ -4,13 +4,13 @@ use fastvect::core::distance::{cosine_similarity, dot_product, euclidean_distanc
 use fastvect::{PayloadValue, Point};
 use std::collections::HashMap;
 
-/// Verifies that the schemaless payload mapping correctly serializes, stores,
-/// and processes dynamic text models designed for semantic caching workloads.
+/// Technical verification sequence confirming that the unstructured `Payload` state
+/// behaves as a valid, polymorphic data carrier optimized for semantic cache stores.
 #[test]
 fn test_semantic_cache_payload_structure() {
     let mut cache_payload = HashMap::new();
 
-    // Simulating a production-grade LLM response envelope inside the payload matrix
+    // Mocking an operational JSON completion response payload inside our variant mapping
     cache_payload.insert(
         "cached_response".to_string(),
         PayloadValue::Text(
@@ -25,19 +25,20 @@ fn test_semantic_cache_payload_structure() {
         payload: Some(cache_payload),
     };
 
-    // Invariant checks on the generated point entity
+    // Assert structural schema and payload integrity constraints
     assert_eq!(cache_point.id, 1);
     if let Some(payload) = cache_point.payload {
         match payload.get("cached_response").unwrap() {
             PayloadValue::Text(text) => assert!(text.contains("Successfully generated")),
             _ => panic!(
-                "Type evaluation failure: Payload value must resolve to PayloadValue::Text variant"
+                "Type assertion error: Payload data must resolve exactly to PayloadValue::Text"
             ),
         }
     }
 }
 
-/// Validates that the dot product engine evaluates orthogonal vectors to an exact zero value.
+/// Geometric invariant test ensuring that completely orthogonal high-dimensional vectors
+/// yield a scalar dot product score of exactly `0.0`.
 #[test]
 fn test_dot_product_orthogonal_geometry() {
     let v1 = vec![1.0, 0.0, 0.0];
@@ -45,18 +46,19 @@ fn test_dot_product_orthogonal_geometry() {
     assert_eq!(dot_product(&v1, &v2).unwrap(), 0.0);
 }
 
-/// Confirms that identical directional arrays yield an absolute cosine similarity score of 1.0.
+/// Mathematical convergence verification confirming that perfectly aligned, identical physical directional
+/// arrays produce an absolute directional similarity score of `1.0`.
 #[test]
 fn test_cosine_similarity_identical() {
     let v1 = vec![3.0, 4.0, 5.0];
     let v2 = vec![3.0, 4.0, 5.0];
     let similarity = cosine_similarity(&v1, &v2).unwrap();
 
-    // Applying epsilon delta evaluation bounds to account for standard float precision limits
+    // Integrate an analytical epsilon bound to safely bypass dynamic floating-point rounding errors
     assert!((similarity - 1.0).abs() < 1e-5);
 }
 
-/// Evaluates spatial straight-line variance metrics using a classic 3-4-5 geometric triangle topology.
+/// Spatial metric check evaluating straight-line Cartesian distances using a classic 3-4-5 geometric right triangle.
 #[test]
 fn test_euclidean_distance_triangle() {
     let v1 = vec![0.0, 0.0];
@@ -64,7 +66,8 @@ fn test_euclidean_distance_triangle() {
     assert_eq!(euclidean_distance(&v1, &v2).unwrap(), 5.0);
 }
 
-/// Confirms that the geometry layer correctly halts and catches dimension mismatches during runtime passes.
+/// Boundary security check verifying that the geometric compute layer safely isolates
+/// and fends off asymmetric multi-dimensional vector inputs during calculation steps.
 #[test]
 fn test_dimension_mismatch_error() {
     let v1 = vec![1.0, 2.0];
