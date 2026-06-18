@@ -1,0 +1,16 @@
+[package]
+name = "fastvect"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "fastvect"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = "0.29.0"
+rand = "0.10.1"
+
+[[test]]
+name = "rust_tests"
+path = "tests/rust/main.rs"
