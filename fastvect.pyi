@@ -1,7 +1,7 @@
 # fastvect.pyi
 from typing import Literal
 
-# Supported distance metric literals
+# Supported distance metric literals mapped precisely across FFI bridges
 SupportedMetrics = Literal["cosine", "dot_product", "euclidean", "dot", "l2"]
 
 class VectorStorage:
@@ -29,7 +29,7 @@ class VectorStorage:
         Universally inserts or updates a coordinate entity embedding paired with structured metadata.
 
         This operation triggers atomic mutations across internal storage pools and schedules
-        asynchronous or immediate bi-directional link weaving within the HNSW graph lattice.
+        immediate bi-directional link weaving within the active HNSW graph hierarchies.
 
         Args:
             point_id: Unique 64-bit unsigned tracking key.
@@ -39,18 +39,24 @@ class VectorStorage:
         ...
 
     def search(
-        self, query_vector: list[float], limit: int, metric: SupportedMetrics
+        self,
+        query_vector: list[float],
+        limit: int,
+        metric: SupportedMetrics,
+        tenant_id: str | None = None,
     ) -> list[tuple[int, float]]:
         """
         Searches the high-dimensional vector space to extract the Top-K nearest neighbors.
 
         Dynamically routes queries via exact linear $O(N)$ brute-force sweeps or ultra-fast
         logarithmic $O(\\log N)$ HNSW hierarchical graph traversals depending on data volume thresholds.
+        Enforces single-stage metadata pre-filtering if tenancy constraints are assigned.
 
         Args:
             query_vector: Analytical float coordinates used as the lookup search target.
             limit: Total result count capacity boundary depth (Top-K matching limits).
             metric: Proximity formula token. Supported configurations: 'cosine', 'dot_product', 'euclidean'.
+            tenant_id: Optional identification tag string used to enforce secure workspace isolation.
 
         Returns:
             A ordered list of records matching the schema layout: `[(Point ID, Metric Match Score), ...]`

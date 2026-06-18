@@ -1,7 +1,7 @@
 // src/bindings/storage.rs
 
 use super::payload::parse_python_payload;
-use crate::{DistanceMetric, Point, Segment};
+use crate::{DistanceMetric, Filter, Point, Segment};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
@@ -60,23 +60,27 @@ impl PyVectorStorage {
     /// Searches the high-dimensional vector space to extract top-K nearest neighbors matching target query configurations.
     ///
     /// This framework evaluates cluster density bounds at runtime to seamlessly route lookups via exact linear
-    /// KNN sweeps or optimized logarithmic HNSW structural mesh traversal loops.
+    /// KNN sweeps or optimized logarithmic HNSW structural mesh traversal loops. It enforces single-stage
+    /// pre-filtering if an optional tenant constraint is provided.
     ///
     /// # Parameters
     /// * `query_vector` - Target float matrix coordinates to evaluate across spatial topologies.
     /// * `limit` - The total depth matching threshold boundary (Top-K) to harvest from active memory slots.
     /// * `metric` - Configuration string matching supported parameters: `'cosine'`, `'dot_product'`, or `'euclidean'`.
+    /// * `tenant_id` - An optional string key used to isolate workspace partitions under active multi-tenancy rules.
     ///
     /// # Returns
     /// A structured Python list containing tuple records formatted as: `(Point ID, Proximity Similarity Score)`.
     ///
     /// # Errors
     /// Throws a `ValueError` exception wrapper if parsing passes encounter unrecognized metric tokens.
+    #[pyo3(signature = (query_vector, limit, metric, tenant_id=None))]
     pub fn search(
         &self,
         query_vector: Vec<f32>,
         limit: usize,
         metric: String,
+        tenant_id: Option<String>,
     ) -> PyResult<Vec<(u64, f32)>> {
         let rust_metric = match metric.to_lowercase().as_str() {
             "dot_product" | "dot" => DistanceMetric::DotProduct,
@@ -84,12 +88,18 @@ impl PyVectorStorage {
             "euclidean" | "l2" => DistanceMetric::HighPrecisionEuclidean,
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported metric option. Choose from: 'cosine', 'dot_product', or 'euclidean'.",
+                    "Unsupported metric option. Choose from: 'cosine', 'dot_product' ('dot'), or 'euclidean' ('l2').",
                 ));
             }
         };
 
-        let hits = self.inner.search(&query_vector, limit, rust_metric);
+        // Construct the core filtration layer from the incoming Python runtime arguments
+        let rust_filter = tenant_id.map(Filter::new);
+
+        // Defer downstream routing paths seamlessly using our filter references
+        let hits = self
+            .inner
+            .search(&query_vector, limit, rust_metric, rust_filter.as_ref());
         let py_results = hits.into_iter().map(|(id, score, _)| (id, score)).collect();
         Ok(py_results)
     }

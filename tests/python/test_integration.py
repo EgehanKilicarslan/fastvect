@@ -2,7 +2,8 @@
 Integration test suite for the fastvect high-performance vector storage engine.
 
 This module validates structural memory transitions, polymorphic payload conversions,
-spatial search approximations, and binary persistence operations using pytest assertions.
+spatial search approximations, multi-tenancy soft isolation barriers, and binary
+persistence operations using pytest assertions.
 """
 
 import os
@@ -88,4 +89,55 @@ def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
     )
     assert restored_results[0][0] == 1, (
         "Analytical index continuity constraints broken following state recovery loops."
+    )
+
+
+def test_vector_storage_single_stage_tenancy_filtration() -> None:
+    """
+    Verifies single-stage metadata pre-filtering constraints under multi-tenant workloads.
+
+    Ensures that vector lookups executed within shared structural graphs are safely
+    restricted to the assigned tenant boundary without dropping computational search recall.
+    """
+    storage = fastvect.VectorStorage()
+
+    # 1. Seed workspace partitions separating tenant_alpha from tenant_beta
+    # Point 1 is mathematically closest to the query but explicitly tied to tenant_alpha
+    storage.upsert(
+        point_id=1,
+        vector=[0.1, 0.1, 0.1, 0.1],
+        payload={"tenant_id": "tenant_alpha", "scope": "internal"},
+    )
+
+    # Point 2 sits further away and is explicitly locked under tenant_beta properties
+    storage.upsert(
+        point_id=2,
+        vector=[0.8, 0.8, 0.8, 0.8],
+        payload={"tenant_id": "tenant_beta", "scope": "external"},
+    )
+
+    query = [0.12, 0.12, 0.12, 0.12]
+
+    # 2. Verify Tenancy Gatekeeper: Execute spatial search restricted to tenant_alpha boundaries
+    results_alpha = storage.search(
+        query_vector=query, limit=2, metric="cosine", tenant_id="tenant_alpha"
+    )
+
+    assert len(results_alpha) == 1, (
+        "The pre-filter gatekeeper failed to drop tenant_beta completely from results."
+    )
+    assert results_alpha[0][0] == 1, (
+        "The core search logic returned an incorrect entity key under tenant filtering fields."
+    )
+
+    # 3. Reverse Boundaries: Execute spatial search restricted to tenant_beta boundaries
+    results_beta = storage.search(
+        query_vector=query, limit=2, metric="cosine", tenant_id="tenant_beta"
+    )
+
+    assert len(results_beta) == 1, (
+        "The filtration layer allowed cross-tenant leakages during lookup operations."
+    )
+    assert results_beta[0][0] == 2, (
+        "Analytical data routing paths cross-contaminated workspace boundaries."
     )

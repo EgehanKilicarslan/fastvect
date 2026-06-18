@@ -9,7 +9,7 @@ use pyo3::prelude::*;
 
 /// Root-level industrial API re-exports for maximum developer ergonomics.
 /// This acts as a clean Facade layer over our deep domain-driven architecture.
-pub use core::{DistanceMetric, Payload, PayloadValue, Point};
+pub use core::{DistanceMetric, Filter, Payload, PayloadValue, Point};
 pub use index::HNSWIndex;
 pub use storage::{SearchResult, Segment};
 
