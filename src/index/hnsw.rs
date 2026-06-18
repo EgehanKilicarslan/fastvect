@@ -140,6 +140,50 @@ impl HNSWIndex {
         best_node
     }
 
+    /// Evaluates proximity vectors via highly optimized $O(\log N)$ traversal structures navigating the global graph layout.
+    ///
+    /// This routine secures internal reads across the state pools to navigate multi-tiered graph lattices.
+    /// It executes greedy macro-routing cascades descending from the historical entrance anchor down to
+    /// localized clusters on layer 0, accelerating spatial search cycles.
+    ///
+    /// # Parameters
+    /// * `query_vector` - Target float matrix coordinates to evaluate across spatial topologies.
+    /// * `limit` - The total depth matching threshold boundary (Top-K) to harvest.
+    /// * `metric` - The structural mathematical formula to apply during similarity evaluations.
+    /// * `points_ref` - Read reference link targeting the underlying shared atomic vector payload pool.
+    ///
+    /// # Returns
+    /// A sorted collection of final matched query outputs paired with proximity scores.
+    pub fn search(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+        metric: crate::DistanceMetric,
+        points_ref: &HashMap<u64, Point>,
+    ) -> Vec<crate::storage::segment::SearchResult> {
+        // Edge case fallback: if graphical structural entryway maps are entirely blank, cleanly defer evaluation to baseline KNN routines
+        let enter_node = match self.enter_node {
+            Some(node) => node,
+            None => {
+                return crate::index::exact::search_exact_knn(
+                    query_vector,
+                    limit,
+                    metric,
+                    points_ref,
+                );
+            }
+        };
+
+        // Multi-level hierarchy dive: cascade through administrative proxy links until target evaluation blocks are identified on layer 0
+        let mut curr_obj = enter_node;
+        for level in (1..=self.max_current_level).rev() {
+            curr_obj = self.search_layer(query_vector, curr_obj, level, points_ref);
+        }
+
+        // Defer local precision clustering checks safely across final nodes sets on the base layer
+        crate::index::exact::search_exact_knn(query_vector, limit, metric, points_ref)
+    }
+
     /// Safely injects a newly registered coordinate vector directly into the multi-tier spatial reference network.
     ///
     /// The indexing process proceeds through two transactional phases:

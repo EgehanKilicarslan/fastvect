@@ -1,6 +1,6 @@
 // src/storage/segment.rs
 
-use crate::core::distance::{cosine_similarity, dot_product, euclidean_distance};
+use crate::index::exact::search_exact_knn;
 use crate::{DistanceMetric, HNSWIndex, Payload, Point};
 use std::collections::HashMap;
 use std::fs::File;
@@ -60,7 +60,7 @@ impl Segment {
     /// To maximize developer ergonomics and query efficiency, this orchestrator inspects the overall
     /// saturation metric of the segment. If the total payload scale is less than 500 coordinates, it routes
     /// the parameter array to a linear scan to bypass graph overheads. Otherwise, it delegates processing
-    /// paths to sub-logics navigating the HNSW topology map.
+    /// paths to the HNSW engine module.
     ///
     /// # Parameters
     /// * `query_vector` - A floating-point slice representing the multi-dimensional search target coordinate.
@@ -75,92 +75,16 @@ impl Segment {
         limit: usize,
         metric: DistanceMetric,
     ) -> Vec<SearchResult> {
-        let total_points = {
-            let read_guard = self.points.read().unwrap();
-            read_guard.len()
-        };
+        let points_guard = self.points.read().unwrap();
+        let index_guard = self.hnsw_index.read().unwrap();
+        let total_points = points_guard.len();
 
         // Execution path selection matrix: switch computational architectures seamlessly based on localized database payload scaling
         if total_points < 500 {
-            self.exact_knn(query_vector, limit, metric)
+            search_exact_knn(query_vector, limit, metric, &points_guard)
         } else {
-            self.hnsw_search(query_vector, limit, metric)
+            index_guard.search(query_vector, limit, metric, &points_guard)
         }
-    }
-
-    /// Executes an $O(N)$ high-precision sequential evaluation scan across all existing active vectors registered inside memory bounds.
-    ///
-    /// This private baseline routine iterates over the registered storage matrix to compute raw mathematical metrics.
-    /// It functions as the ultimate fallback layer for isolated datasets, and acts as the ground-truth benchmark
-    /// registry used to evaluate the operational recall precision rates of graph lookups.
-    fn exact_knn(
-        &self,
-        query_vector: &[f32],
-        limit: usize,
-        metric: DistanceMetric,
-    ) -> Vec<SearchResult> {
-        let read_guard = self.points.read().unwrap();
-        let mut scored_results: Vec<SearchResult> = Vec::new();
-
-        for point in read_guard.values() {
-            let score_res = match metric {
-                DistanceMetric::DotProduct => dot_product(query_vector, &point.vector),
-                DistanceMetric::Cosine => cosine_similarity(query_vector, &point.vector),
-                DistanceMetric::HighPrecisionEuclidean => {
-                    euclidean_distance(query_vector, &point.vector)
-                }
-            };
-
-            if let Ok(score) = score_res {
-                scored_results.push((point.id, score, point.payload.clone()));
-            }
-        }
-
-        // Strategic sorting pass resolving mathematical properties native to individual metrics parameters
-        match metric {
-            // Similarity maximization: higher values dictate proximal optimization parameters
-            DistanceMetric::DotProduct | DistanceMetric::Cosine => {
-                scored_results
-                    .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            }
-            // Error variance minimization: lower mathematical bounds prove spatial optimization parameters
-            DistanceMetric::HighPrecisionEuclidean => {
-                scored_results
-                    .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            }
-        }
-
-        scored_results.into_iter().take(limit).collect()
-    }
-
-    /// Evaluates proximity vectors via highly optimized $O(\log N)$ traversal structures navigating the global HNSW network layout.
-    ///
-    /// This routine secures parallel read guards across the state pools to navigate multi-tiered graph lattices.
-    /// It executes greedy macro-routing cascades descending from the historical entrance anchor down to
-    /// localized clusters on layer 0, accelerating spatial search cycles while protecting threads from resource starvation.
-    fn hnsw_search(
-        &self,
-        query_vector: &[f32],
-        limit: usize,
-        metric: DistanceMetric,
-    ) -> Vec<SearchResult> {
-        let index_guard = self.hnsw_index.read().unwrap();
-        let points_guard = self.points.read().unwrap();
-
-        // Edge case fallback: if graphical structural entryway maps are entirely blank, cleanly defer evaluation to baseline KNN routines
-        let enter_node = match index_guard.enter_node {
-            Some(node) => node,
-            None => return self.exact_knn(query_vector, limit, metric),
-        };
-
-        // Multi-level hierarchy dive: cascade through administrative proxy links until target evaluation blocks are identified
-        let mut curr_obj = enter_node;
-        for level in (1..=index_guard.max_current_level).rev() {
-            curr_obj = index_guard.search_layer(query_vector, curr_obj, level, &points_guard);
-        }
-
-        // Defer local precision clustering checks safely across final nodes sets
-        self.exact_knn(query_vector, limit, metric)
     }
 
     /// Serializes the entire segment data (raw points and HNSW graph structures) into an optimized binary buffer using Postcard and flushes it to disk.
