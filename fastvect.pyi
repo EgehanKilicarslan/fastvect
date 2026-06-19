@@ -63,6 +63,31 @@ class VectorStorage:
         """
         ...
 
+    def batch_search(
+        self,
+        query_vectors: list[list[float]],
+        limit: int,
+        metric: SupportedMetrics,
+        tenant_id: str | None = None,
+    ) -> list[list[tuple[int, float]]]:
+        """
+        Executes concurrent high-dimensional batch vector lookups across available hardware processing units.
+
+        This engine utilizes a thread-safe parallel processing map (Rayon) to bypass Python runtime loop
+        overheads and GIL bottlenecks. It drives multi-tenant graph filtering routines simultaneously
+        across the active hardware threads.
+
+        Args:
+            query_vectors: A nested list of multiple analytical float matrix coordinates to process concurrently.
+            limit: The targeted depth capacity matching threshold (Top-K) to extract per discrete query sequence.
+            metric: Proximity formula token. Supported configurations: 'cosine', 'dot_product', 'euclidean'.
+            tenant_id: Optional string token used to restrict queries to specific isolated tenancy environments.
+
+        Returns:
+            A nested list containing ordered matching records arrays: `[[(Point ID, Score), ...], ...]`
+        """
+        ...
+
     def save(self, path: str) -> None:
         """
         Commits the active in-memory database segment snapshot directly to a localized binary asset.

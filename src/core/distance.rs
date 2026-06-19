@@ -1,6 +1,7 @@
 // src/core/distance.rs
 
 /// Supported geometric metrics utilized for calculating spatial proximity between high-dimensional vector embeddings.
+#[derive(Copy, Clone)]
 pub enum DistanceMetric {
     /// Vector dot product metric, optimal for normalized embeddings ($A \cdot B = \sum a_i b_i$).
     DotProduct,

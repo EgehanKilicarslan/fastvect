@@ -3,18 +3,19 @@
 use crate::core::distance::{cosine_similarity, dot_product, euclidean_distance};
 use crate::{DistanceMetric, Filter, Point};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Represents a distinct graphical vertex localized within the multi-tiered HNSW graph indexing mesh.
 ///
-/// Each node serves as an analytical coordinate anchor that encapsulates adjacent routing links
-/// mapped across multiple hierarchical connectivity tiers.
+/// Memory-optimized: Replaces the heap-heavy HashMap infrastructure with a contiguous flat array
+/// spanning exactly 16 potential routing planes. This adjustment drastically drops pointer allocation
+/// overhead and optimizes CPU cache line pre-fetching vectors during lookup traversals.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HNSWNode {
     /// Global tracking key linking the graphical node to its shared parent data model identity.
     pub point_id: u64,
-    /// Adjacency reference tables assigning specific level indices to a discrete list of neighbor node IDs.
-    pub neighbors: HashMap<usize, Vec<u64>>,
+    /// Fixed structural array layout mapping internal level layers directly to discrete neighbor collections.
+    pub neighbors: [Vec<u64>; 16],
 }
 
 /// Core state machine managing properties, multi-tier routing topologies, and graph generation layers for the HNSW index.
@@ -67,17 +68,17 @@ impl HNSWIndex {
     /// Higher layers are exponentially less likely to be selected, ensuring a sparse log-scale administrative macro-routing layout.
     ///
     /// # Returns
-    /// An integer mapping the target ceiling level boundary, capped explicitly at a maximum threshold of 16 layers.
+    /// An integer mapping the target ceiling level boundary, capped explicitly at a maximum threshold array index of 15 (0..16 layers).
     fn generate_random_level(&self) -> usize {
         let r: f64 = rand::random::<f64>();
         let factor = 1.0 / (self.m as f64).ln();
 
         if r == 0.0 {
-            return 16;
+            return 15;
         }
 
         let level = (-r.ln() * factor) as usize;
-        std::cmp::min(level, 16)
+        std::cmp::min(level, 15)
     }
 
     /// Traverses a specific layer using a greedy search approach to isolate the closest vertex node near the target query array.
@@ -116,7 +117,9 @@ impl HNSWIndex {
         while changed {
             changed = false;
             if let Some(node) = self.nodes.get(&best_node) {
-                if let Some(neighbors) = node.neighbors.get(&level) {
+                // Bounds guard ensuring clean register indexing onto our flattened internal layer tracks
+                if level < 16 {
+                    let neighbors = &node.neighbors[level];
                     for &neighbor_id in neighbors {
                         if let Some(neighbor_point) = points_ref.get(&neighbor_id) {
                             // GRAPH NAVIGATIONAL PRE-FILTERING: Avoid jumping to neighbors belonging to non-matching tenants
@@ -188,7 +191,11 @@ impl HNSWIndex {
         }
 
         // Phase 2: True Layer 0 Localized Greedy Search (Beam Search bounded by ef_search)
-        let mut visited = HashSet::new();
+        // CRITICAL PERFORMANCE FIX: Replaced heap-allocated HashSet with a dense flat lookup array
+        // to completely eliminate dynamic micro-allocations and hashing computational costs during graph traversal.
+        let visited_max_id = self.nodes.keys().max().cloned().unwrap_or(0) as usize;
+        let mut visited = vec![false; visited_max_id + 1];
+
         let mut candidates: Vec<(f32, u64)> = Vec::new();
         let mut results_pool: Vec<(f32, u64)> = Vec::new();
 
@@ -200,7 +207,10 @@ impl HNSWIndex {
             };
             candidates.push((dist, curr_obj));
             results_pool.push((dist, curr_obj));
-            visited.insert(curr_obj);
+
+            if (curr_obj as usize) < visited.len() {
+                visited[curr_obj as usize] = true;
+            }
         }
 
         // Greedy horizontal traversal exploration loop bounded by the ef_search saturation factors
@@ -216,41 +226,40 @@ impl HNSWIndex {
                 .unwrap_or(f32::MAX);
 
             if let Some(node) = self.nodes.get(&nearest_cand_id) {
-                if let Some(neighbors) = node.neighbors.get(&0) {
-                    // Explicitly query base Layer 0
-                    for &neighbor_id in neighbors {
-                        if !visited.contains(&neighbor_id) {
-                            visited.insert(neighbor_id);
+                // Direct lookup on flattened array slice avoiding map allocation overheads entirely
+                let neighbors = &node.neighbors[0];
+                for &neighbor_id in neighbors {
+                    let nid_idx = neighbor_id as usize;
 
-                            if let Some(neighbor_point) = points_ref.get(&neighbor_id) {
-                                // Multi-tenant graph routing safety gatekeeper
-                                if let Some(f) = filter {
-                                    if !f.matches(&neighbor_point.payload) {
-                                        continue;
-                                    }
+                    // Direct O(1) array bounds checking replacing complex hash computations
+                    if nid_idx < visited.len() && !visited[nid_idx] {
+                        visited[nid_idx] = true;
+
+                        if let Some(neighbor_point) = points_ref.get(&neighbor_id) {
+                            // Multi-tenant graph routing safety gatekeeper
+                            if let Some(f) = filter {
+                                if !f.matches(&neighbor_point.payload) {
+                                    continue;
                                 }
+                            }
 
-                                let dist =
-                                    match cosine_similarity(query_vector, &neighbor_point.vector) {
-                                        Ok(sim) => 1.0 - sim,
-                                        Err(_) => f32::MAX,
-                                    };
+                            let dist = match cosine_similarity(query_vector, &neighbor_point.vector)
+                            {
+                                Ok(sim) => 1.0 - sim,
+                                Err(_) => f32::MAX,
+                            };
 
-                                // Expand local paths if neighbor is closer than current worst candidate or queue has open space
-                                if dist < furthest_result_dist
-                                    || results_pool.len() < self.ef_search
-                                {
-                                    candidates.push((dist, neighbor_id));
-                                    results_pool.push((dist, neighbor_id));
+                            // Expand local paths if neighbor is closer than current worst candidate or queue has open space
+                            if dist < furthest_result_dist || results_pool.len() < self.ef_search {
+                                candidates.push((dist, neighbor_id));
+                                results_pool.push((dist, neighbor_id));
 
-                                    // Enforce strict upper boundary thresholds capped at ef_search parameters
-                                    if results_pool.len() > self.ef_search {
-                                        results_pool.sort_by(|a, b| {
-                                            a.0.partial_cmp(&b.0)
-                                                .unwrap_or(std::cmp::Ordering::Equal)
-                                        });
-                                        results_pool.pop();
-                                    }
+                                // Enforce strict upper boundary thresholds capped at ef_search parameters
+                                if results_pool.len() > self.ef_search {
+                                    results_pool.sort_by(|a, b| {
+                                        a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                                    });
+                                    results_pool.pop();
                                 }
                             }
                         }
@@ -319,13 +328,13 @@ impl HNSWIndex {
     pub fn insert(&mut self, point_id: u64, vector: &[f32], points_ref: &HashMap<u64, Point>) {
         let insert_level = self.generate_random_level();
 
+        // Stack-allocated standard fixed internal layer arrays containing empty tracking lists
+        let neighbors_array: [Vec<u64>; 16] = Default::default();
+
         let mut new_node = HNSWNode {
             point_id,
-            neighbors: HashMap::new(),
+            neighbors: neighbors_array,
         };
-        for l in 0..=insert_level {
-            new_node.neighbors.insert(l, Vec::new());
-        }
 
         let curr_enter_node = match self.enter_node {
             Some(node) => node,
@@ -349,19 +358,12 @@ impl HNSWIndex {
             curr_obj = self.search_layer(vector, curr_obj, level, points_ref, None);
 
             if let Some(neighbor_node) = self.nodes.get_mut(&curr_obj) {
-                let neighbors_list = neighbor_node
-                    .neighbors
-                    .entry(level)
-                    .or_insert_with(Vec::new);
+                let neighbors_list = &mut neighbor_node.neighbors[level];
                 if neighbors_list.len() < self.m {
                     neighbors_list.push(point_id);
                 }
             }
-            new_node
-                .neighbors
-                .entry(level)
-                .or_insert_with(Vec::new)
-                .push(curr_obj);
+            new_node.neighbors[level].push(curr_obj);
         }
 
         if insert_level > self.max_current_level {

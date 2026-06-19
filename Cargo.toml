@@ -1,7 +1,8 @@
 [package]
 name = "fastvect"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+license = "MIT"
 
 [lib]
 name = "fastvect"
@@ -11,8 +12,15 @@ crate-type = ["cdylib", "rlib"]
 postcard = { version = "1.1.3", features = ["alloc"] }
 pyo3 = "0.29.0"
 rand = "0.10.1"
+rayon = "1.12.0"
 serde = { version = "1.0.228", features = ["derive"] }
 
 [[test]]
 name = "rust_tests"
 path = "tests/rust/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+opt-level = 3

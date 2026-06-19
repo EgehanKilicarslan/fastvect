@@ -4,6 +4,7 @@ use super::payload::parse_python_payload;
 use crate::{DistanceMetric, Filter, Point, Segment};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use rayon::prelude::*;
 
 /// Qdrant-inspired high-performance Vector Storage and Search engine exposed directly to Python runtimes.
 ///
@@ -17,6 +18,9 @@ pub struct PyVectorStorage {
 #[pymethods]
 impl PyVectorStorage {
     /// Instantiates a new, isolated production-grade `VectorStorage` workspace environment.
+    ///
+    /// Allocates the internal atomic storage segment and pre-configures memory block parameters
+    /// required for safe multi-threaded operation execution lanes.
     #[new]
     pub fn new() -> Self {
         Self {
@@ -102,6 +106,57 @@ impl PyVectorStorage {
             .search(&query_vector, limit, rust_metric, rust_filter.as_ref());
         let py_results = hits.into_iter().map(|(id, score, _)| (id, score)).collect();
         Ok(py_results)
+    }
+
+    /// Executes concurrent high-dimensional batch vector lookups across available hardware processing units.
+    ///
+    /// This engine utilizes a thread-safe parallel processing map (Rayon) to bypass Python runtime loop
+    /// overheads. It drives multi-tenant graph filtering routines simultaneously across the matrix block workspace.
+    ///
+    /// # Parameters
+    /// * `query_vectors` - A nested list of multiple analytical float matrix coordinates to process concurrently.
+    /// * `limit` - The targeted depth capacity matching threshold (Top-K) to extract per discrete query sequence.
+    /// * `metric` - Configuration metric string token: `'cosine'`, `'dot_product'`, or `'euclidean'`.
+    /// * `tenant_id` - An optional string token used to restrict queries to specific isolated tenancy environments.
+    ///
+    /// # Returns
+    /// A nested Python list containing ordered matching records arrays formatted as: `[[(Point ID, Score), ...], ...]`.
+    ///
+    /// # Errors
+    /// Throws a `ValueError` exception wrapper if the target parsing sequence processes an unknown structural metric token.
+    #[pyo3(signature = (query_vectors, limit, metric, tenant_id=None))]
+    pub fn batch_search(
+        &self,
+        query_vectors: Vec<Vec<f32>>,
+        limit: usize,
+        metric: String,
+        tenant_id: Option<String>,
+    ) -> PyResult<Vec<Vec<(u64, f32)>>> {
+        let rust_metric = match metric.to_lowercase().as_str() {
+            "dot_product" | "dot" => DistanceMetric::DotProduct,
+            "cosine" => DistanceMetric::Cosine,
+            "euclidean" | "l2" => DistanceMetric::HighPrecisionEuclidean,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported metric option assigned. Choose from: 'cosine', 'dot_product', or 'euclidean'.",
+                ));
+            }
+        };
+
+        let rust_filter = tenant_id.map(Filter::new);
+
+        // Parallel map pass deploying cross-crate work-stealing loops without lock contentions
+        let batch_results: Vec<Vec<(u64, f32)>> = query_vectors
+            .par_iter()
+            .map(|query_vector| {
+                let hits =
+                    self.inner
+                        .search(query_vector, limit, rust_metric, rust_filter.as_ref());
+                hits.into_iter().map(|(id, score, _)| (id, score)).collect()
+            })
+            .collect();
+
+        Ok(batch_results)
     }
 
     /// Commits the running transactional database state snapshot directly onto localized physical storage tracks.
