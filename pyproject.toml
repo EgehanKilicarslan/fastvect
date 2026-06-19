@@ -4,10 +4,20 @@ build-backend = "maturin"
 
 [project]
 name = "fastvect"
-version = "1.0.0"
+version = "1.0.1"
 description = "Embedded, ultra-fast vector database with HNSW indexing built in Rust."
 requires-python = ">=3.11"
 dependencies = []
+
+# CRITICAL FIX: Direct references to map your curated documentation onto PyPI indexes
+readme = "README.md"
+license = { text = "MIT" }
+
+# Corporate metadata mappings to redirect users back to production tracks
+[project.urls]
+Homepage = "https://github.com/EgehanKilicarslan/fastvect"
+Repository = "https://github.com/EgehanKilicarslan/fastvect"
+"Bug Tracker" = "https://github.com/EgehanKilicarslan/fastvect/issues"
 
 [dependency-groups]
 dev = [
