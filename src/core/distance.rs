@@ -61,6 +61,8 @@ pub fn compute_distance(
 // ============================================================================================
 
 /// Computes the mathematical Dot Product using architectural hardware runtime SIMD selection lanes.
+///
+/// Routes calculations through AVX2/FMA on x86_64 or NEON on aarch64 architectures.
 fn dot_product_f32(a: &[f32], b: &[f32]) -> Result<f32, String> {
     if a.len() != b.len() {
         return Err(
@@ -68,24 +70,21 @@ fn dot_product_f32(a: &[f32], b: &[f32]) -> Result<f32, String> {
         );
     }
 
-    // Dynamic x86 hardware dispatch utilizing fused-multiply-add extensions
     #[cfg(target_arch = "x86_64")]
     if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
         return Ok(unsafe { simd::x86::dot_product_f32(a, b) });
     }
 
-    // ARM64 architecture neon vectorization route
     #[cfg(target_arch = "aarch64")]
     {
         return Ok(unsafe { simd::arm::dot_product_f32(a, b) });
     }
 
-    // Standard sequential hardware backup loop fallback
     #[allow(unreachable_code)]
     Ok(a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum())
 }
 
-/// Computes the Cosine Similarity by cleanly mapping magnitudes onto our 4x unrolled dot_product engine.
+/// Computes the Cosine Similarity by cleanly mapping magnitudes onto our unrolled dot_product engine.
 fn cosine_similarity_f32(a: &[f32], b: &[f32]) -> Result<f32, String> {
     let dot = dot_product_f32(a, b)?;
 
@@ -108,9 +107,9 @@ fn euclidean_distance_f32(a: &[f32], b: &[f32]) -> Result<f32, String> {
         );
     }
 
-    // Vectorized Euclidean distance calculation via target-specific feature lines
     #[cfg(target_arch = "x86_64")]
-    if is_x86_feature_detected!("avx2") {
+    // FIXED: Ensured both avx2 and fma execution flags are verified safely before dispatching to hardware modules
+    if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
         return Ok(unsafe { simd::x86::euclidean_sq_f32(a, b) }.sqrt());
     }
 
@@ -121,7 +120,7 @@ fn euclidean_distance_f32(a: &[f32], b: &[f32]) -> Result<f32, String> {
 
     #[allow(unreachable_code)]
     {
-        let sum_squares: f32 = a
+        let s: f32 = a
             .iter()
             .zip(b.iter())
             .map(|(&x, &y)| {
@@ -129,7 +128,7 @@ fn euclidean_distance_f32(a: &[f32], b: &[f32]) -> Result<f32, String> {
                 diff * diff
             })
             .sum();
-        Ok(sum_squares.sqrt())
+        Ok(s.sqrt())
     }
 }
 

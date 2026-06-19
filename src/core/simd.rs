@@ -22,17 +22,17 @@ pub mod x86 {
     pub unsafe fn dot_product_f32(a: &[f32], b: &[f32]) -> f32 {
         let len = a.len();
 
-        // Edge Case Protection: If vector dimensionality is lower than a single AVX2 register lane (8 floats),
-        // instantly short-circuit to a clean scalar compute pass to prevent register tail pollution.
         if len < 8 {
             return a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum();
         }
 
         // Initialize four independent accumulator lanes to maximize instruction-level parallelism
-        let mut sum_vec0 = _mm256_setzero_ps();
-        let mut sum_vec1 = _mm256_setzero_ps();
-        let mut sum_vec2 = _mm256_setzero_ps();
-        let mut sum_vec3 = _mm256_setzero_ps();
+        let (mut sum_vec0, mut sum_vec1, mut sum_vec2, mut sum_vec3) = (
+            _mm256_setzero_ps(),
+            _mm256_setzero_ps(),
+            _mm256_setzero_ps(),
+            _mm256_setzero_ps(),
+        );
 
         let rem = len % 32;
         let main_len = len - rem;
@@ -50,7 +50,6 @@ pub mod x86 {
 
                 let va2 = _mm256_loadu_ps(a.as_ptr().add(i + 16));
                 let vb2 = _mm256_loadu_ps(b.as_ptr().add(i + 16));
-                sum_vec2 = _mm256_loadu_ps(b.as_ptr().add(i + 16));
                 sum_vec2 = _mm256_fmadd_ps(va2, vb2, sum_vec2);
 
                 let va3 = _mm256_loadu_ps(a.as_ptr().add(i + 24));
@@ -89,11 +88,11 @@ pub mod x86 {
         sum
     }
 
-    /// Computes an accelerated Euclidean squared error sum using 256-bit AVX2 lanes.
+    /// Computes an accelerated Euclidean squared error sum using 256-bit AVX2 and FMA lanes.
     ///
     /// # Safety
-    /// Caller must guarantee target processor architectures support standard AVX2 feature extensions.
-    #[target_feature(enable = "avx2")]
+    /// Caller must guarantee target processor architectures support standard AVX2 and FMA feature extensions.
+    #[target_feature(enable = "avx2,fma")]
     pub unsafe fn euclidean_sq_f32(a: &[f32], b: &[f32]) -> f32 {
         let len = a.len();
         if len < 8 {
@@ -127,7 +126,6 @@ pub mod x86 {
         }
         let mut sum = buffer.iter().sum::<f32>();
 
-        // Clean up remaining matrix layout tail elements sequential paths
         for i in main_len..len {
             let diff = a[i] - b[i];
             sum += diff * diff;
@@ -137,8 +135,7 @@ pub mod x86 {
 
     /// Optimized ultra-fast integer-math dot product over F8 (u8) quantized arrays.
     ///
-    /// Employs optimized `_mm256_maddubs_epi16` and vertical `_mm256_sad_epu8` hardware blocks
-    /// to perform lightning-fast horizontal additions over byte-quantized memory pools.
+    /// Employs unpacked unsigned 16-bit register widening loops to bypass potential signed asymmetry.
     ///
     /// # Safety
     /// Will trigger an illegal instruction fault if called on microprocessors lacking AVX2 instruction lines.
@@ -148,29 +145,35 @@ pub mod x86 {
         let rem = len % 32;
         let main_len = len - rem;
 
-        let mut acc_ab = _mm256_setzero_si256();
-        let mut acc_a = _mm256_setzero_si256();
-        let mut acc_b = _mm256_setzero_si256();
+        let (mut acc_ab, mut acc_a, mut acc_b, zero_vec) = (
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+            _mm256_setzero_si256(),
+        );
 
-        let ones_16 = _mm256_set1_epi16(1);
-        let zero_vec = _mm256_setzero_si256();
-
-        // Process packed byte chunks (32 dimensions per step) via localized integer math operations
+        // Process packed byte chunks via explicit internal unsafe boundaries
         for i in (0..main_len).step_by(32) {
             unsafe {
                 let va = _mm256_loadu_si256(a.as_ptr().add(i) as *const __m256i);
                 let vb = _mm256_loadu_si256(b.as_ptr().add(i) as *const __m256i);
 
-                // Multiply signed/unsigned bytes and accumulate adjacent pairs into 16-bit integers
-                let intermediate = _mm256_maddubs_epi16(va, vb);
-                acc_ab = _mm256_add_epi32(acc_ab, _mm256_madd_epi16(intermediate, ones_16));
+                let va_lo = _mm256_extracti128_si256(va, 0);
+                let va_hi = _mm256_extracti128_si256(va, 1);
+                let vb_lo = _mm256_extracti128_si256(vb, 0);
+                let vb_hi = _mm256_extracti128_si256(vb, 1);
 
-                // Compute sum of absolute differences against zero vector to perform fast horizontal byte summation
-                let sad_a = _mm256_sad_epu8(va, zero_vec);
-                acc_a = _mm256_add_epi64(acc_a, sad_a);
+                let a16_lo = _mm256_cvtepu8_epi16(va_lo);
+                let a16_hi = _mm256_cvtepu8_epi16(va_hi);
+                let b16_lo = _mm256_cvtepu8_epi16(vb_lo);
+                let b16_hi = _mm256_cvtepu8_epi16(vb_hi);
 
-                let sad_b = _mm256_sad_epu8(vb, zero_vec);
-                acc_b = _mm256_add_epi64(acc_b, sad_b);
+                let prod_lo = _mm256_madd_epi16(a16_lo, b16_lo);
+                let prod_hi = _mm256_madd_epi16(a16_hi, b16_hi);
+                acc_ab = _mm256_add_epi32(acc_ab, _mm256_add_epi32(prod_lo, prod_hi));
+
+                acc_a = _mm256_add_epi64(acc_a, _mm256_sad_epu8(va, zero_vec));
+                acc_b = _mm256_add_epi64(acc_b, _mm256_sad_epu8(vb, zero_vec));
             }
         }
 
@@ -188,7 +191,6 @@ pub mod x86 {
         sums.1 += buf_a.iter().map(|&x| x as u32).sum::<u32>();
         sums.2 += buf_b.iter().map(|&x| x as u32).sum::<u32>();
 
-        // Flush remaining alignment tail properties smoothly
         for i in main_len..len {
             sums.0 += (a[i] as u32) * (b[i] as u32);
             sums.1 += a[i] as u32;
@@ -219,7 +221,6 @@ pub mod arm {
         let rem = len % 8;
         let main_len = len - rem;
 
-        // VLA instruction pipelines processing dual 4-lane float registries sequentially
         for i in (0..main_len).step_by(8) {
             unsafe {
                 let va0 = vld1q_f32(a.as_ptr().add(i));
@@ -244,7 +245,6 @@ pub mod arm {
             }
         }
 
-        // Horizontal register lane accumulation pass
         let mut sum = unsafe {
             vgetq_lane_f32(sum_vec0, 0)
                 + vgetq_lane_f32(sum_vec0, 1)
@@ -259,6 +259,9 @@ pub mod arm {
     }
 
     /// Computes an accelerated Euclidean squared error sum using 128-bit ARM Neon vector registries.
+    ///
+    /// # Safety
+    /// This function performs raw assembly mapped execution passes over direct hardware lines.
     pub unsafe fn euclidean_sq_f32(a: &[f32], b: &[f32]) -> f32 {
         let len = a.len();
         if len < 4 {

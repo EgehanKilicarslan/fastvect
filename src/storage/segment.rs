@@ -129,7 +129,6 @@ impl Segment {
     /// and weaves node relationships securely into the global graphical layout.
     pub fn upsert(&self, point: Point) {
         let point_id = point.id;
-        let vector_clone = point.vector.clone();
         let idx = point_id as usize;
 
         let mut tenant_id: Option<String> = None;
@@ -148,26 +147,28 @@ impl Segment {
             guard.deleted_bits[idx] = false;
         }
 
-        let is_update = guard.points.insert(point_id, point).is_some();
+        let SegmentState {
+            points,
+            hnsw_index,
+            tenant_counters,
+            ..
+        } = &mut *guard;
+        let is_update = points.insert(point_id, point).is_some();
 
         if !is_update {
             self.global_counter.fetch_add(1, Ordering::Relaxed);
             if let Some(tid) = tenant_id {
-                let counter = guard
-                    .tenant_counters
+                let counter = tenant_counters
                     .entry(tid)
                     .or_insert_with(|| AtomicUsize::new(0));
                 counter.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        // FIXED: Destructured the centralized write guard into separated independent references
-        // to conform with Rust's strict borrow-checker aliasing rules effortlessly.
-        let SegmentState {
-            points, hnsw_index, ..
-        } = &mut *guard;
-
-        hnsw_index.insert(point_id, &vector_clone, points);
+        // FIXED: Borrowed direct structural layouts straight from the storage map
+        // post-insertion, completely avoiding preemptive heap vector allocations!
+        let vector_ref = &points[&point_id].vector;
+        hnsw_index.insert(point_id, vector_ref, points);
     }
 
     /// Executes high-velocity concurrent vector space lookups with zero long-lived lock contention.
@@ -181,14 +182,12 @@ impl Segment {
         metric: DistanceMetric,
         filter: Option<&Filter>,
     ) -> Vec<SearchResult> {
-        // Shared configuration state is extracted via a single macro lock check pass
         let guard = self.state.read();
 
         let current_precision = guard.precision;
         let quantized_query = ScalarQuantizer::quantize(query_vector, current_precision);
         let total_points = guard.points.len();
 
-        // Dynamic task router: Small data pools trigger exact linear passes; mass arrays fire greedy HNSW passes
         if total_points < 500 {
             search_exact_knn(
                 &quantized_query,
@@ -199,7 +198,6 @@ impl Segment {
                 &guard.deleted_bits,
             )
         } else {
-            // High-speed index traversal sweeping interior kilit-free structures concurrently
             guard.hnsw_index.search(
                 &quantized_query,
                 limit,
@@ -229,7 +227,7 @@ impl Segment {
 
         writer
             .write_all(&serialized_bytes)
-            .map_err(|e| format!("Failed to write serialized bytes to disk: {}", e))?;
+            .map_err(|e| format!("IO failure: {}", e))?;
         Ok(())
     }
 
@@ -241,7 +239,7 @@ impl Segment {
         let mut raw_bytes = Vec::new();
         reader
             .read_to_end(&mut raw_bytes)
-            .map_err(|e| format!("Failed to read snapshot file bytes: {}", e))?;
+            .map_err(|e| format!("IO failure: {}", e))?;
 
         let (loaded_points, loaded_index, loaded_deleted, loaded_precision): (
             FxHashMap<u64, Point>,
@@ -249,17 +247,38 @@ impl Segment {
             Vec<bool>,
             StoragePrecision,
         ) = postcard::from_bytes(&raw_bytes)
-            .map_err(|e| format!("Postcard binary deserialization pipeline failure: {}", e))?;
+            .map_err(|e| format!("Deserialization failure: {}", e))?;
 
-        // Synchronize and calibrate atomic volume telemetry gauges to match structural state logs
         self.global_counter
             .store(loaded_points.len(), Ordering::Relaxed);
 
         let mut guard = self.state.write();
+
+        // FIXED: Dynamically rehydrated tenant counters telemetry arrays straight from loaded storage states
+        let mut new_tenant_counters = FxHashMap::default();
+        for point in loaded_points.values() {
+            if let Some(payload) = &point.payload {
+                if let Some(tenant_val) = payload.get("tenant_id") {
+                    let tid_opt = match tenant_val {
+                        crate::PayloadValue::Keyword(s) => Some(s.clone()),
+                        crate::PayloadValue::Text(s) => Some(s.clone()),
+                        _ => None,
+                    };
+                    if let Some(tid) = tid_opt {
+                        new_tenant_counters
+                            .entry(tid)
+                            .or_insert_with(|| AtomicUsize::new(0))
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+
         guard.points = loaded_points;
         guard.hnsw_index = loaded_index;
         guard.deleted_bits = loaded_deleted;
         guard.precision = loaded_precision;
+        guard.tenant_counters = new_tenant_counters;
 
         Ok(())
     }
