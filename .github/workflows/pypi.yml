@@ -5,7 +5,7 @@ name: CI/CD Build and Publish Wheels to PyPI
 on:
   push:
     tags:
-      - "v*"
+      - "v*" # Triggers the workflow exclusively when a version tag (e.g., v1.0.0) is pushed
 
 permissions:
   contents: read
@@ -15,19 +15,29 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        target: [x86_64, aarch64] # Multi-architecture matrix covering Intel/AMD and ARM64 systems
     steps:
       - uses: actions/checkout@v4
+
+      # Set up QEMU static binaries to enable cross-architecture Docker emulation for ARM64 targets
+      - name: Set up QEMU
+        if: matrix.target == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      # Build platform-specific wheels inside manylinux compliance containers
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist
+          # --find-interpreter scan matches all pre-installed Python binaries in the manylinux environment
+          args: --release --out dist --find-interpreter
           sccache: "true"
           manylinux: auto
+
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -44,12 +54,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
           sccache: "true"
+
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -60,18 +72,20 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        target: [x86_64, aarch64]
+        target: [x86_64, aarch64] # Dual targeting for Intel Macs and Apple Silicon (M1/M2/M3)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist
           sccache: "true"
+
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
@@ -81,9 +95,9 @@ jobs:
   publish:
     name: Publish to PyPI
     runs-on: ubuntu-latest
-    needs: [linux, windows, macos]
+    needs: [linux, windows, macos] # Demands flawless execution across all compilation boundaries
     permissions:
-      # Trusted Publishing için bu izin kritik önem taşır
+      # Required identity scope allocation to handshake via PyPI Trusted Publishing (OIDC)
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
@@ -91,6 +105,8 @@ jobs:
           pattern: wheels-*
           path: dist
           merge-multiple: true
+
+      # Securely dispatch all harvested platform binary packages over to PyPI indexes
       - name: Publish to PyPI
         uses: PyO3/maturin-action@v1
         with:
