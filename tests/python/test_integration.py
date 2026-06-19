@@ -3,11 +3,13 @@ Integration test suite for the fastvect high-performance vector storage engine.
 
 Validates structural memory transitions, polymorphic payload conversions,
 spatial search approximations, multi-tenancy soft isolation barriers,
-new management APIs (count, delete, exists), and binary persistence operations.
+new management APIs (count, delete, exists), binary persistence operations,
+and multi-precision quantization modes (f32, f16, f8).
 """
 
 import os
 from collections.abc import Generator
+from typing import Literal
 
 import pytest
 
@@ -28,18 +30,20 @@ def snapshot_cleanup() -> Generator[str, None, None]:
         os.remove(target_file)
 
 
-def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
+@pytest.mark.parametrize("precision", ["f32", "f16", "f8"])
+def test_vector_storage_lifecycle(
+    snapshot_cleanup: str, precision: Literal["f32", "f16", "f8"]
+) -> None:
     """
     Validates the end-to-end operational lifecycle of VectorStorage instances.
 
     Verifies programmatic upserts with heterogeneous dynamic payloads, executes
     angular cosine neighbor discovery loops, and asserts zero-loss state rehydration.
-
-    Args:
-        snapshot_cleanup (str): Fixture injected path targeting file persistence checks.
     """
     snapshot_file = snapshot_cleanup
-    storage = fastvect.VectorStorage()
+
+    # Initialize core storage component with target precision layout injected dynamically
+    storage = fastvect.VectorStorage(precision=precision)
 
     storage.upsert(
         point_id=1,
@@ -66,14 +70,14 @@ def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
     assert closest_id == 1, (
         "Point ID 1 should mathematically optimize for minimum distance error margins."
     )
-    assert score > 0.95, "Calculated cosine index metrics should map close proximity."
+    assert score > 0.90, "Calculated cosine index metrics should map close proximity."
 
     storage.save(snapshot_file)
     assert os.path.exists(snapshot_file), (
         "The persistence layer failed to flush bytecode arrays to disk."
     )
 
-    new_storage = fastvect.VectorStorage()
+    new_storage = fastvect.VectorStorage(precision=precision)
     new_storage.load(snapshot_file)
 
     restored_results = new_storage.search(query_vector=query, limit=1, metric="cosine")
@@ -85,14 +89,17 @@ def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
     )
 
 
-def test_vector_storage_single_stage_tenancy_filtration() -> None:
+@pytest.mark.parametrize("precision", ["f32", "f16", "f8"])
+def test_vector_storage_single_stage_tenancy_filtration(
+    precision: Literal["f32", "f16", "f8"],
+) -> None:
     """
     Verifies single-stage metadata pre-filtering constraints under multi-tenant workloads.
 
     Ensures that vector lookups executed within shared structural graphs are safely
     restricted to the assigned tenant boundary without dropping computational search recall.
     """
-    storage = fastvect.VectorStorage()
+    storage = fastvect.VectorStorage(precision=precision)
 
     storage.upsert(
         point_id=1,
@@ -130,14 +137,15 @@ def test_vector_storage_single_stage_tenancy_filtration() -> None:
     )
 
 
-def test_vector_storage_management_api() -> None:
+@pytest.mark.parametrize("precision", ["f32", "f16", "f8"])
+def test_vector_storage_management_api(precision: Literal["f32", "f16", "f8"]) -> None:
     """
     Validates structural integrity boundaries for data exist, count, and delete interfaces.
 
     Ensures tombstone markers hide deleted entities from search paths instantly and safely
     mutates data volume status representations.
     """
-    storage = fastvect.VectorStorage()
+    storage = fastvect.VectorStorage(precision=precision)
 
     assert not storage.exists(point_id=100)
     assert storage.count() == 0
@@ -171,14 +179,17 @@ def test_vector_storage_management_api() -> None:
     )
 
 
-def test_vector_storage_global_and_tenant_counters() -> None:
+@pytest.mark.parametrize("precision", ["f32", "f16", "f8"])
+def test_vector_storage_global_and_tenant_counters(
+    precision: Literal["f32", "f16", "f8"],
+) -> None:
     """
     Verifies lock-free atomic transactional counter isolation properties.
 
     Asserts that specifying optional tenant filters correctly isolates segment
     sub-volumes without bleeding metrics into opposing environments.
     """
-    storage = fastvect.VectorStorage()
+    storage = fastvect.VectorStorage(precision=precision)
 
     storage.upsert(
         point_id=10, vector=[0.1, 0.2], payload={"tenant_id": "tenant_alpha"}

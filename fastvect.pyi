@@ -2,18 +2,22 @@
 from typing import Literal
 
 SupportedMetrics = Literal["cosine", "dot_product", "euclidean", "dot", "l2"]
+SupportedPrecisions = Literal["f32", "f16", "f8", "int8"]
 
 class VectorStorage:
-    """
-    High-performance embedded Vector Storage and Search engine.
+    """High-performance embedded Vector Storage and Search engine.
 
     Powered by an optimized Rust core managing synchronized memory states,
     HNSW graph index routing pipelines, and compressed binary state serialization.
     """
 
-    def __init__(self) -> None:
-        """
-        Instantiates an empty synchronized VectorStorage workspace partition.
+    def __init__(self, precision: SupportedPrecisions = "f32") -> None:
+        """Instantiates an empty synchronized VectorStorage workspace partition.
+
+        Args:
+            precision: Storage layout type tracking resource tradeoffs.
+                Choose from: 'f32' (highest recall), 'f16' (2x compression),
+                or 'f8'/'int8' (4x compression and maximum throughput).
         """
         ...
 
@@ -23,8 +27,7 @@ class VectorStorage:
         vector: list[float],
         payload: dict[str, str | int | float] | None = None,
     ) -> None:
-        """
-        Inserts or updates a high-dimensional vector entity paired with payload metadata.
+        """Inserts or updates a high-dimensional vector entity paired with payload metadata.
 
         Clears historical tombstone markers matching the identifier if the key undergoes
         re-insertion tracks.
@@ -37,8 +40,7 @@ class VectorStorage:
         ...
 
     def exists(self, point_id: int) -> bool:
-        """
-        Validates if a target data key exists inside the storage memory pool.
+        """Validates if a target data key exists inside the storage memory pool.
 
         Args:
             point_id: Unique unsigned 64-bit entity key identifier.
@@ -49,20 +51,18 @@ class VectorStorage:
         ...
 
     def count(self, tenant_id: str | None = None) -> int:
-        """
-        Extracts total records active within specified boundary contexts under lock-free states.
+        """Extracts total records active within specified boundary contexts.
 
         Args:
             tenant_id: Optional string key targeting a specific isolated workspace tenant.
 
         Returns:
-            Total count of live records active within the partition pool.
+            Total count of live records active within the partition pool boundary.
         """
         ...
 
     def delete(self, point_id: int) -> bool:
-        """
-        Places a transactional tombstone bit marker flagging an element as deleted.
+        """Places a transactional tombstone bit marker flagging an element as deleted.
 
         Executes a soft-delete mutation by updating internal tracking states without
         corrupting active HNSW graph connection topologies.
@@ -82,8 +82,7 @@ class VectorStorage:
         metric: SupportedMetrics,
         tenant_id: str | None = None,
     ) -> list[tuple[int, float]]:
-        """
-        Searches the high-dimensional vector space using dynamic execution routing paths.
+        """Searches the high-dimensional vector space using dynamic execution routing paths.
 
         Evaluates volume thresholds to route lookups through precise linear KNN sweeps
         or ultra-fast logarithmic HNSW hierarchical graph traversals.
@@ -106,8 +105,7 @@ class VectorStorage:
         metric: SupportedMetrics,
         tenant_id: str | None = None,
     ) -> list[list[tuple[int, float]]]:
-        """
-        Executes concurrent high-dimensional batch vector lookups via multi-threaded maps.
+        """Executes concurrent high-dimensional batch vector lookups via multi-threaded maps.
 
         Bypasses Python runtime loop overheads and GIL bottlenecks by driving multi-tenant graph
         filtering routines simultaneously across available hardware processing threads.
@@ -124,8 +122,7 @@ class VectorStorage:
         ...
 
     def save(self, path: str) -> None:
-        """
-        Commits running in-memory database segment snapshots directly to a localized binary asset.
+        """Commits running in-memory database segment snapshots directly to a localized binary asset.
 
         Args:
             path: Target local file system path where the checkpoint asset should be written.
@@ -136,8 +133,7 @@ class VectorStorage:
         ...
 
     def load(self, path: str) -> None:
-        """
-        Loads and rehydrates a pre-existing storage binary checkpoint file back into memory.
+        """Loads and rehydrates pre-existing storage binary checkpoint files back into memory.
 
         Args:
             path: Target local binary backup snapshot location to fetch and parse.

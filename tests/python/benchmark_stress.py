@@ -1,14 +1,15 @@
 """
 Production-grade performance benchmarking and structural stress-testing suite
-for the fastvect vector database engine.
+for the fastvect multi-precision vector database engine.
 
-Optimized to enforce deterministic evaluation paths, isolate execution warmup boundaries,
-and aggregate statistical data points across multi-threaded operations.
+Enforces deterministic evaluation paths across F32, F16, and F8 quantized
+storage layout boundaries to aggregate comparative throughput metrics.
 """
 
 import os
 import random
 import time
+from typing import Literal
 
 import fastvect
 
@@ -19,10 +20,9 @@ TOTAL_POINTS: int = (
 )
 TOP_K: int = 10  # Total nearest neighbors depth threshold (Top-K results)
 QUERY_ITERATIONS: int = 1000  # Total queries sent inside the hardware traversal loops
-BENCHMARK_RUNS: int = (
-    5  # Statistical iterations to isolate thermal and OS throttling anomalies
-)
+BENCHMARK_RUNS: int = 5  # Statistical iterations to isolate thermal or OS throttling
 TEST_TENANTS: list[str] = ["tenant_alpha", "tenant_beta", "tenant_gamma"]
+PRECISION_MODES: list[Literal["f32", "f16", "f8"]] = ["f32", "f16", "f8"]
 
 # Enforce system determinism across database generation runs
 random.seed(42)
@@ -33,20 +33,21 @@ def generate_random_vector(dim: int) -> list[float]:
     return [random.uniform(-1.0, 1.0) for _ in range(dim)]
 
 
-def run_performance_benchmark() -> None:
-    print("=" * 80)
+def run_precision_benchmark(precision: Literal["f32", "f16", "f8"]) -> None:
+    print("-" * 80)
     print(
-        f"🚀 STARTING FASTVECT ARCHITECTURAL STRESS TEST ({TOTAL_POINTS} Entities, {DIMENSION}-Dim)"
+        f"🔥 EVALUATING STORAGE CONFIGURATION: Precision Mode = [{precision.upper()}]"
     )
-    print("=" * 80)
+    print("-" * 80)
 
-    storage = fastvect.VectorStorage()
+    # Initialize the core storage component with target precision schema
+    storage = fastvect.VectorStorage(precision=precision)
 
     # -----------------------------------------------------------------------------------------
     # PHASE 1: DETERMINISTIC INGESTION PERFORMANCE
     # -----------------------------------------------------------------------------------------
     print(
-        f"\n📥 Phase 1: Injecting {TOTAL_POINTS} vectors across polymorphic tenant segments..."
+        f"📥 Phase 1: Injecting {TOTAL_POINTS} vectors across polymorphic tenant segments..."
     )
     start_time: float = time.perf_counter()
 
@@ -76,17 +77,15 @@ def run_performance_benchmark() -> None:
     # PHASE 2: FILTRATION QUERY STRESS WITH HARDWARE WARMUP & STATISTICAL AGGREGATION
     # -----------------------------------------------------------------------------------------
     print(
-        f"\n🔍 Phase 2: Bombarding HNSW graph loops with {QUERY_ITERATIONS} multi-tenant filtered queries..."
+        f"\n🔍 Phase 2: Bombarding HNSW graph loops with {QUERY_ITERATIONS} filtered queries..."
     )
 
-    # Pre-generate entire batch to isolate pure database traversal from python loop allocations
     batch_vectors: list[list[float]] = [
         generate_random_vector(DIMENSION) for _ in range(QUERY_ITERATIONS)
     ]
     target_tenant: str = random.choice(TEST_TENANTS)
 
     # HARDWARE WARMUP PHASE: Evict sleep states and map CPU cache configurations beforehand
-    print("    🔥 Executing query loops warmup boundary context pass...")
     for _ in range(3):
         _ = storage.batch_search(
             query_vectors=batch_vectors[:50],
@@ -95,14 +94,10 @@ def run_performance_benchmark() -> None:
             tenant_id=target_tenant,
         )
 
-    # Core performance metric tracking containers
     qps_records: list[float] = []
     latency_records: list[float] = []
 
-    print(
-        f"    ⏱️  Running {BENCHMARK_RUNS} benchmark cycles for statistical stability profiling..."
-    )
-    for run in range(1, BENCHMARK_RUNS + 1):
+    for _ in range(1, BENCHMARK_RUNS + 1):
         run_start = time.perf_counter()
 
         _ = storage.batch_search(
@@ -120,11 +115,7 @@ def run_performance_benchmark() -> None:
 
         qps_records.append(current_qps)
         latency_records.append(current_latency_ms)
-        print(
-            f"        ▪ Cycle #{run}: {current_qps:.2f} QPS | Latency: {current_latency_ms * 1000.0:.1f} μs"
-        )
 
-    # Extract clean statistical summary representations
     avg_qps: float = sum(qps_records) / len(qps_records)
     min_qps: float = min(qps_records)
     max_qps: float = max(qps_records)
@@ -141,7 +132,7 @@ def run_performance_benchmark() -> None:
     # -----------------------------------------------------------------------------------------
     # PHASE 3: PERSISTENCE STRESS SNAPSHOT COMMITS
     # -----------------------------------------------------------------------------------------
-    snapshot_path: str = "benchmark_stress_snapshot.bin"
+    snapshot_path: str = f"benchmark_stress_{precision}_snapshot.bin"
     print(
         "\n💾 Phase 3: Committing compressed zero-copy binary state serialization via Postcard..."
     )
@@ -149,9 +140,13 @@ def run_performance_benchmark() -> None:
     s_start: float = time.perf_counter()
     storage.save(snapshot_path)
     s_end: float = time.perf_counter()
-    print(f"    ▪ Serialization Save Duration : {(s_end - s_start) * 1000.0:.2f} ms")
 
-    new_storage: fastvect.VectorStorage = fastvect.VectorStorage()
+    # Calculate disk footprint weight metrics
+    file_size_kb: float = os.path.getsize(snapshot_path) / 1024.0
+    print(f"    ▪ Serialization Save Duration : {(s_end - s_start) * 1000.0:.2f} ms")
+    print(f"    ▪ Disk Snapshot Weight        : {file_size_kb:.2f} KB")
+
+    new_storage = fastvect.VectorStorage(precision=precision)
     l_start: float = time.perf_counter()
     new_storage.load(snapshot_path)
     l_end: float = time.perf_counter()
@@ -159,11 +154,24 @@ def run_performance_benchmark() -> None:
 
     if os.path.exists(snapshot_path):
         os.remove(snapshot_path)
+    print("\n")
 
-    print("\n" + "=" * 80)
-    print("🎉 FASTVECT ARCHITECTURAL PERFORMANCE BENCHMARK EXECUTED SUCCESSFULLY!")
+
+def run_performance_suite() -> None:
+    print("=" * 80)
+    print("🚀 STARTING MULTI-PRECISION FASTVECT ARCHITECTURAL STRESS TEST")
+    print(
+        f"   Vectors: {TOTAL_POINTS} | Dimensions: {DIMENSION} | Loops: {QUERY_ITERATIONS} iterations"
+    )
+    print("=" * 80 + "\n")
+
+    for precision in PRECISION_MODES:
+        run_precision_benchmark(precision=precision)
+
+    print("=" * 80)
+    print("🎉 ALL FASTVECT PRECISION CONFIGURATION CORES EXECUTED SUCCESSFULLY!")
     print("=" * 80)
 
 
 if __name__ == "__main__":
-    run_performance_benchmark()
+    run_performance_suite()

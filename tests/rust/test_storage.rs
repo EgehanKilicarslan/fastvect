@@ -1,14 +1,15 @@
 // tests/rust/test_storage.rs
 
 use fastvect::core::filter::Filter;
-use fastvect::{DistanceMetric, PayloadValue, Point, Segment};
+use fastvect::core::quantization::ScalarQuantizer;
+use fastvect::{DistanceMetric, PayloadValue, Point, Segment, StoragePrecision};
 use rustc_hash::FxHashMap;
 
 /// Invariant pipeline test ensuring low-cardinality partitions correctly short-circuit search traffic
 /// directly onto high-precision, raw linear search layers ($O(N)$ scans).
 #[test]
 fn test_storage_dynamic_routing_exact_knn() {
-    let segment = Segment::new();
+    let segment = Segment::new(StoragePrecision::F32);
     let mut metadata = FxHashMap::default();
     metadata.insert(
         "category".to_string(),
@@ -17,13 +18,13 @@ fn test_storage_dynamic_routing_exact_knn() {
 
     segment.upsert(Point {
         id: 42,
-        vector: vec![0.1, 0.2, 0.3],
+        vector: ScalarQuantizer::quantize(&[0.1, 0.2, 0.3], StoragePrecision::F32),
         payload: Some(metadata),
     });
 
     segment.upsert(Point {
         id: 99,
-        vector: vec![-0.1, -0.2, -0.3],
+        vector: ScalarQuantizer::quantize(&[-0.1, -0.2, -0.3], StoragePrecision::F32),
         payload: None,
     });
 
@@ -47,16 +48,16 @@ fn test_storage_dynamic_routing_exact_knn() {
     );
 }
 
-/// Operational threshold validation confirming that massive cluster growth triggers deep multi-layer
-/// graph routing without spilling thread block states or throwing exception failures.
+/// Operational threshold validation confirming that cluster growth successfully triggers deep
+/// multi-layer HNSW graph fallback routing paths without dropping target recall count parameters.
 #[test]
 fn test_storage_dynamic_routing_hnsw_fallback_stub() {
-    let segment = Segment::new();
+    let segment = Segment::new(StoragePrecision::F32);
 
     for i in 0..501 {
         segment.upsert(Point {
             id: i,
-            vector: vec![i as f32 * 0.001, 0.5, 0.5],
+            vector: ScalarQuantizer::quantize(&[i as f32 * 0.001, 0.5, 0.5], StoragePrecision::F32),
             payload: None,
         });
     }
@@ -77,15 +78,15 @@ fn test_storage_dynamic_routing_hnsw_fallback_stub() {
 }
 
 /// Dynamic snapshot validation tracking serialization passes, disk commit cycles, and
-/// database hot-swapping sequences using Postcard with zero spatial accuracy drift.
+/// database rehydration sequences using Postcard with zero floating-point accuracy drift.
 #[test]
 fn test_storage_persistence_snapshot_lifecycle() {
-    let source_segment = Segment::new();
+    let source_segment = Segment::new(StoragePrecision::F32);
     let temp_snapshot_path = "tests_temporary_snapshot.bin";
 
     source_segment.upsert(Point {
         id: 1337,
-        vector: vec![0.1, 0.2, 0.3, 0.4],
+        vector: ScalarQuantizer::quantize(&[0.1, 0.2, 0.3, 0.4], StoragePrecision::F32),
         payload: None,
     });
 
@@ -95,7 +96,7 @@ fn test_storage_persistence_snapshot_lifecycle() {
         "The persistence subsystem failed to flush memory clusters to disk"
     );
 
-    let restored_segment = Segment::new();
+    let restored_segment = Segment::new(StoragePrecision::F32);
     let load_result = restored_segment.load_from_disk(temp_snapshot_path);
     assert!(
         load_result.is_ok(),
@@ -122,10 +123,11 @@ fn test_storage_persistence_snapshot_lifecycle() {
     let _ = std::fs::remove_file(temp_snapshot_path);
 }
 
-/// Verification test checking Single-Stage Pre-Filtering behavior under active multi-tenant workloads.
+/// Verification test checking Single-Stage Pre-Filtering behavior under active multi-tenant workloads
+/// to confirm strict logical network separation boundaries.
 #[test]
 fn test_storage_single_stage_tenancy_filtration() {
-    let segment = Segment::new();
+    let segment = Segment::new(StoragePrecision::F32);
 
     let mut payload_a = FxHashMap::default();
     payload_a.insert(
@@ -141,13 +143,13 @@ fn test_storage_single_stage_tenancy_filtration() {
 
     segment.upsert(Point {
         id: 1,
-        vector: vec![0.1, 0.1, 0.1],
+        vector: ScalarQuantizer::quantize(&[0.1, 0.1, 0.1], StoragePrecision::F32),
         payload: Some(payload_a),
     });
 
     segment.upsert(Point {
         id: 2,
-        vector: vec![0.9, 0.9, 0.9],
+        vector: ScalarQuantizer::quantize(&[0.9, 0.9, 0.9], StoragePrecision::F32),
         payload: Some(payload_b),
     });
 
@@ -180,7 +182,7 @@ fn test_storage_single_stage_tenancy_filtration() {
 /// tenant ID correctly short-circuits and safely returns an empty collection block.
 #[test]
 fn test_storage_filtration_with_non_existent_tenant() {
-    let segment = Segment::new();
+    let segment = Segment::new(StoragePrecision::F32);
     let mut payload = FxHashMap::default();
     payload.insert(
         "tenant_id".to_string(),
@@ -189,7 +191,7 @@ fn test_storage_filtration_with_non_existent_tenant() {
 
     segment.upsert(Point {
         id: 100,
-        vector: vec![0.1, 0.2, 0.3],
+        vector: ScalarQuantizer::quantize(&[0.1, 0.2, 0.3], StoragePrecision::F32),
         payload: Some(payload),
     });
 
@@ -204,11 +206,11 @@ fn test_storage_filtration_with_non_existent_tenant() {
     );
 }
 
-/// Structural regression evaluation confirming that the HNSW graph traversal routines
-/// safely obey single-stage tenancy filtration boundaries even when scaling past 500 points.
+/// Structural regression evaluation confirming that the HNSW graph traversal routines safely obey
+/// single-stage tenancy filtration boundaries even when scaling the segment pool past 500 points.
 #[test]
 fn test_storage_hnsw_graph_navigational_tenancy_filtration() {
-    let segment = Segment::new();
+    let segment = Segment::new(StoragePrecision::F32);
 
     for i in 0..600 {
         let mut payload = FxHashMap::default();
@@ -224,7 +226,7 @@ fn test_storage_hnsw_graph_navigational_tenancy_filtration() {
 
         segment.upsert(Point {
             id: i,
-            vector: vec![i as f32 * 0.001, 0.5, 0.5],
+            vector: ScalarQuantizer::quantize(&[i as f32 * 0.001, 0.5, 0.5], StoragePrecision::F32),
             payload: Some(payload),
         });
     }
@@ -256,14 +258,14 @@ fn test_storage_hnsw_graph_navigational_tenancy_filtration() {
 }
 
 /// Boundary safety evaluation verifying that entities completely lacking payload matrices
-/// are safely dropped instead of triggering exceptions during filtered passes.
+/// are safely isolated instead of triggering exceptions during filtered execution passes.
 #[test]
 fn test_storage_filtration_handles_missing_payloads_safely() {
-    let segment = Segment::new();
+    let segment = Segment::new(StoragePrecision::F32);
 
     segment.upsert(Point {
         id: 777,
-        vector: vec![0.1, 0.2, 0.3],
+        vector: ScalarQuantizer::quantize(&[0.1, 0.2, 0.3], StoragePrecision::F32),
         payload: None,
     });
 

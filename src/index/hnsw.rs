@@ -1,7 +1,7 @@
 // src/index/hnsw.rs
 
-use crate::core::distance::{cosine_similarity, dot_product, euclidean_distance};
-use crate::{DistanceMetric, Filter, Point};
+use crate::core::distance::compute_distance;
+use crate::{DistanceMetric, Filter, Point, QuantizedVector};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +33,11 @@ pub struct HNSWIndex {
 
 impl HNSWIndex {
     /// Instantiates an empty, pre-configured Hierarchical Navigable Small World index manager.
+    ///
+    /// # Parameters
+    /// * `m` - The maximum connection degree bound allocated per single graph node.
+    /// * `ef_construction` - Search queue capacity threshold utilized during index construction steps.
+    /// * `ef_search` - Dynamic evaluation beam search width constraint processed during retrieval passes.
     pub fn new(m: usize, ef_construction: usize, ef_search: usize) -> Self {
         Self {
             m,
@@ -44,7 +49,9 @@ impl HNSWIndex {
         }
     }
 
-    /// Evaluates a target layer using an exponential decay function to calculate a new vertex's peak height.
+    /// Evaluates a dynamic level assignment using a logarithmic exponential decay distribution function.
+    ///
+    /// Normalizes node allocation properties to build scaling hiyerarshies that govern logarithmic graph navigation.
     fn generate_random_level(&self) -> usize {
         let r: f64 = rand::random::<f64>();
         let factor = 1.0 / (self.m as f64).ln();
@@ -55,21 +62,21 @@ impl HNSWIndex {
         std::cmp::min(level, 15)
     }
 
-    /// Traverses a specific layer using a greedy search approach to isolate the closest vertex node near the target query array.
+    /// Traverses a specific hiyerarshical layer plane using a greedy heuristic approach to isolate the closest local vertex.
     ///
     /// # Parameters
-    /// * `query_vector` - High-dimensional source slice coordinate array used as the lookup query target.
-    /// * `curr_obj` - Global workspace identifier matching the current entry checkpoint vertex.
-    /// * `level` - The structural matrix layer index currently being traversed.
-    /// * `points_ref` - Read reference link targeting the underlying shared atomic vector payload pool.
-    /// * `filter` - An optional tenant boundary restriction module used to enforce isolation constraints.
-    /// * `deleted_bits` - Read slice tracking historical tombstone data record deletions.
+    /// * `query_vector` - Dynamic target multi-precision quantized vector to evaluate.
+    /// * `curr_obj` - Active checkpoint identifier representing the entry target node for this layer plane.
+    /// * `level` - The discrete structural matrix layer height index to query.
+    /// * `points_ref` - Read reference pointer targeting the unmutated primary database record repository.
+    /// * `filter` - Optional tenant boundary restriction configuration module.
+    /// * `deleted_bits` - Dense validation slice tracking historical tombstone bit indicators.
     ///
     /// # Returns
-    /// The optimal structural node identifier pointing to the closest spatial vertex verified on this target plane.
+    /// The optimal point identifier matching the closest spatial neighbor discovered on this level track.
     pub fn search_layer(
         &self,
-        query_vector: &[f32],
+        query_vector: &QuantizedVector,
         curr_obj: u64,
         level: usize,
         points_ref: &FxHashMap<u64, Point>,
@@ -78,7 +85,7 @@ impl HNSWIndex {
     ) -> u64 {
         let mut best_node = curr_obj;
         let mut best_dist = match points_ref.get(&best_node) {
-            Some(p) => match cosine_similarity(query_vector, &p.vector) {
+            Some(p) => match compute_distance(query_vector, &p.vector, DistanceMetric::Cosine) {
                 Ok(sim) => 1.0 - sim,
                 Err(_) => f32::MAX,
             },
@@ -94,30 +101,37 @@ impl HNSWIndex {
                     for &neighbor_id in neighbors {
                         let nid_idx = neighbor_id as usize;
 
+                        // Skip processing loops instantly if the node matches active tombstone indices.
                         if nid_idx < deleted_bits.len() && deleted_bits[nid_idx] {
                             continue;
                         }
 
                         if let Some(neighbor_point) = points_ref.get(&neighbor_id) {
+                            // Issue explicit x86 execution hardware cache hints to fetch adjacent data lines early.
                             #[cfg(target_arch = "x86_64")]
                             unsafe {
                                 core::arch::x86_64::_mm_prefetch(
-                                    neighbor_point.vector.as_ptr() as *const i8,
+                                    &neighbor_point.vector as *const _ as *const i8,
                                     core::arch::x86_64::_MM_HINT_T0,
                                 );
                             }
 
+                            // Enforce pre-filtering parameters prior to executing expensive spatial proximity tests.
                             if let Some(f) = filter {
                                 if !f.matches(&neighbor_point.payload) {
                                     continue;
                                 }
                             }
 
-                            let dist = match cosine_similarity(query_vector, &neighbor_point.vector)
-                            {
+                            let dist = match compute_distance(
+                                query_vector,
+                                &neighbor_point.vector,
+                                DistanceMetric::Cosine,
+                            ) {
                                 Ok(sim) => 1.0 - sim,
                                 Err(_) => f32::MAX,
                             };
+
                             if dist < best_dist {
                                 best_dist = dist;
                                 best_node = neighbor_id;
@@ -131,24 +145,24 @@ impl HNSWIndex {
         best_node
     }
 
-    /// Evaluates proximity vectors via highly optimized $O(\log N)$ structural graph traversal loops.
+    /// Evaluates dynamic proximity targets across graph hiyerarshies via optimized $O(\log N)$ traversal paths.
     ///
-    /// Executes greedy macro-routing cascades descending from upper layers down to Layer 0, shifting
-    /// to a local Greedy Beam Search bounded by the internal `ef_search` threshold capacity.
+    /// Executes greedy macro-routing cascades descending from allocated top layers down to layer 0, shifting
+    /// smoothly to a localized dynamic beam search bounded strictly by the configured `ef_search` limits.
     ///
     /// # Parameters
-    /// * `query_vector` - Target float matrix coordinates to evaluate across spatial topologies.
-    /// * `limit` - The total depth matching threshold boundary (Top-K) to harvest from active memory slots.
-    /// * `metric` - Configuration configurations matching supported distance parameters.
-    /// * `points_ref` - Read reference link targeting the underlying shared atomic vector payload pool.
-    /// * `filter` - An optional identification tag string used to enforce secure workspace isolation.
-    /// * `deleted_bits` - Read slice tracking historical tombstone data record deletions.
+    /// * `query_vector` - Dynamic target multi-precision quantized vector to evaluate across spatial graphs.
+    /// * `limit` - Total top-K matched entries depth window to collect and slice.
+    /// * `metric` - Targeted distance proximity metric formula configuration.
+    /// * `points_ref` - Shared read pointer linking the query framework to active memory partition maps.
+    /// * `filter` - Optional tenant isolation restriction constraint module.
+    /// * `deleted_bits` - Dense validation slice tracking historical tombstone bit indicators.
     ///
     /// # Returns
-    /// A sorted collection of final matched query outputs paired with spatial similarity scores.
+    /// A sorted vector collection containing matched proximity results paired with operational distance metrics.
     pub fn search(
         &self,
-        query_vector: &[f32],
+        query_vector: &QuantizedVector,
         limit: usize,
         metric: DistanceMetric,
         points_ref: &FxHashMap<u64, Point>,
@@ -160,6 +174,7 @@ impl HNSWIndex {
             None => return Vec::new(),
         };
 
+        // Macro-Traversing Step: Descend aggressively across upper layers to identify the optimal entryway hub.
         let mut curr_obj = enter_node;
         for level in (1..=self.max_current_level).rev() {
             curr_obj = self.search_layer(
@@ -179,14 +194,14 @@ impl HNSWIndex {
         let mut results_pool: Vec<(f32, u64)> = Vec::new();
 
         if let Some(p) = points_ref.get(&curr_obj) {
-            let dist = match cosine_similarity(query_vector, &p.vector) {
+            let dist = match compute_distance(query_vector, &p.vector, DistanceMetric::Cosine) {
                 Ok(sim) => 1.0 - sim,
                 Err(_) => f32::MAX,
             };
 
             let c_idx = curr_obj as usize;
             if c_idx < deleted_bits.len() && deleted_bits[c_idx] {
-                // Skip tombstone entryway
+                // Skip processing soft-deleted entryway checkpoints.
             } else {
                 candidates.push((dist, curr_obj));
                 results_pool.push((dist, curr_obj));
@@ -197,6 +212,7 @@ impl HNSWIndex {
             }
         }
 
+        // Micro-Traversing Step: Execute dynamic local greedy beam search across layer 0 boundaries.
         while !candidates.is_empty() {
             candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
             let (_, nearest_cand_id) = candidates.remove(0);
@@ -223,7 +239,7 @@ impl HNSWIndex {
                             #[cfg(target_arch = "x86_64")]
                             unsafe {
                                 core::arch::x86_64::_mm_prefetch(
-                                    neighbor_point.vector.as_ptr() as *const i8,
+                                    &neighbor_point.vector as *const _ as *const i8,
                                     core::arch::x86_64::_MM_HINT_T0,
                                 );
                             }
@@ -234,8 +250,11 @@ impl HNSWIndex {
                                 }
                             }
 
-                            let dist = match cosine_similarity(query_vector, &neighbor_point.vector)
-                            {
+                            let dist = match compute_distance(
+                                query_vector,
+                                &neighbor_point.vector,
+                                DistanceMetric::Cosine,
+                            ) {
                                 Ok(sim) => 1.0 - sim,
                                 Err(_) => f32::MAX,
                             };
@@ -244,6 +263,7 @@ impl HNSWIndex {
                                 candidates.push((dist, neighbor_id));
                                 results_pool.push((dist, neighbor_id));
 
+                                // Bound the pool strictly matching structural `ef_search` metric weights.
                                 if results_pool.len() > self.ef_search {
                                     results_pool.sort_by(|a, b| {
                                         a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
@@ -257,6 +277,7 @@ impl HNSWIndex {
             }
         }
 
+        // Post-Processing Step: Materialize, calibrate, and transform results into target metric distances.
         let mut final_scored_results: Vec<crate::storage::segment::SearchResult> = Vec::new();
         results_pool.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -264,12 +285,16 @@ impl HNSWIndex {
             if let Some(point) = points_ref.get(&id) {
                 let final_score = match metric {
                     DistanceMetric::DotProduct => {
-                        dot_product(query_vector, &point.vector).unwrap_or(0.0)
+                        compute_distance(query_vector, &point.vector, DistanceMetric::DotProduct)
+                            .unwrap_or(0.0)
                     }
                     DistanceMetric::Cosine => 1.0 - dist,
-                    DistanceMetric::HighPrecisionEuclidean => {
-                        euclidean_distance(query_vector, &point.vector).unwrap_or(f32::MAX)
-                    }
+                    DistanceMetric::HighPrecisionEuclidean => compute_distance(
+                        query_vector,
+                        &point.vector,
+                        DistanceMetric::HighPrecisionEuclidean,
+                    )
+                    .unwrap_or(f32::MAX),
                 };
 
                 final_scored_results.push((point.id, final_score, point.payload.clone()));
@@ -279,6 +304,7 @@ impl HNSWIndex {
             }
         }
 
+        // Apply global sorting transformations native to the targeted metric topology constraints.
         match metric {
             DistanceMetric::DotProduct | DistanceMetric::Cosine => {
                 final_scored_results
@@ -292,13 +318,21 @@ impl HNSWIndex {
         final_scored_results
     }
 
-    /// Safely injects a newly registered coordinate vector directly into the multi-tier spatial reference network.
+    /// Safely injects a multi-precision quantized vector model directly into the multi-tier graph mesh network.
+    ///
+    /// Manages edge linking routines across randomized insertion heights, maintaining dynamic clustering
+    /// connectivity thresholds under concurrent workload patterns.
     ///
     /// # Parameters
-    /// * `point_id` - Unique transactional database token assigned to register the target object.
-    /// * `vector` - Raw float array slice representing the underlying vector profile coordinates.
-    /// * `points_ref` - Read access to global target points records.
-    pub fn insert(&mut self, point_id: u64, vector: &[f32], points_ref: &FxHashMap<u64, Point>) {
+    /// * `point_id` - Unique key identifier targeting the entity registry mapping.
+    /// * `vector` - Reference link to the newly quantized data entity coordinates package.
+    /// * `points_ref` - Read access pointing directly onto the master records storage pool.
+    pub fn insert(
+        &mut self,
+        point_id: u64,
+        vector: &QuantizedVector,
+        points_ref: &FxHashMap<u64, Point>,
+    ) {
         let insert_level = self.generate_random_level();
         let neighbors_array: [Vec<u64>; 16] = Default::default();
 
@@ -307,6 +341,7 @@ impl HNSWIndex {
             neighbors: neighbors_array,
         };
 
+        // Cold-Start Invariant: Initialize master entry nodes if the graph network is empty.
         let curr_enter_node = match self.enter_node {
             Some(node) => node,
             None => {
@@ -319,12 +354,14 @@ impl HNSWIndex {
 
         let mut curr_obj = curr_enter_node;
 
+        // Routing Cascade Pass: Traverse down from max peak towards insertion level heights.
         if insert_level < self.max_current_level {
             for level in (insert_level + 1..=self.max_current_level).rev() {
                 curr_obj = self.search_layer(vector, curr_obj, level, points_ref, None, &[]);
             }
         }
 
+        // Connection Stitching Pass: Connect and weave bilateral adjacency lists matching degree limit matrix configurations.
         for level in (0..=std::cmp::min(insert_level, self.max_current_level)).rev() {
             curr_obj = self.search_layer(vector, curr_obj, level, points_ref, None, &[]);
 
@@ -337,6 +374,7 @@ impl HNSWIndex {
             new_node.neighbors[level].push(curr_obj);
         }
 
+        // Adjust entry landmarks if the generated node transcends active height metrics.
         if insert_level > self.max_current_level {
             self.max_current_level = insert_level;
             self.enter_node = Some(point_id);

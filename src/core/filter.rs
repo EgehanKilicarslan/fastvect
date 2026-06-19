@@ -19,6 +19,9 @@ impl Filter {
     /// # Parameters
     /// * `tenant_id` - Target unique tenant identifier string assigned to secure spatial routing loops.
     ///
+    /// # Returns
+    /// An initialized `Filter` instance configured to guard workspace boundaries.
+    ///
     /// # Examples
     /// ```
     /// use fastvect::core::filter::Filter;
@@ -42,7 +45,6 @@ impl Filter {
     pub fn matches(&self, payload: &Option<crate::Payload>) -> bool {
         match payload {
             Some(map) => {
-                // Route type checking sequentially across supported string-based enum representations
                 if let Some(crate::PayloadValue::Keyword(tenant_val)) = map.get("tenant_id") {
                     tenant_val == &self.tenant_id
                 } else if let Some(crate::PayloadValue::Text(tenant_val)) = map.get("tenant_id") {

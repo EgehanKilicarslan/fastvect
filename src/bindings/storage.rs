@@ -1,7 +1,7 @@
 // src/bindings/storage.rs
 
 use super::payload::parse_python_payload;
-use crate::{DistanceMetric, Filter, Point, Segment};
+use crate::{DistanceMetric, Filter, Point, Segment, StoragePrecision};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use rayon::prelude::*;
@@ -18,14 +18,43 @@ pub struct PyVectorStorage {
 #[pymethods]
 impl PyVectorStorage {
     /// Instantiates a new, isolated production-grade `VectorStorage` workspace environment.
+    ///
+    /// # Parameters
+    /// * `precision` - Target memory configuration and compression layout: `'f32'`, `'f16'`, or `'f8'`.
+    ///
+    /// # Errors
+    /// Returns a `ValueError` exception if an unrecognized or unsupported precision token is supplied.
     #[new]
-    pub fn new() -> Self {
-        Self {
-            inner: Segment::new(),
-        }
+    #[pyo3(signature = (precision = "f32".to_string()))]
+    pub fn new(precision: String) -> PyResult<Self> {
+        let rust_precision = match precision.to_lowercase().as_str() {
+            "f32" => StoragePrecision::F32,
+            "f16" => StoragePrecision::F16,
+            "f8" | "int8" => StoragePrecision::F8,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "Unsupported precision option assigned. Choose from: 'f32', 'f16', or 'f8'.",
+                ));
+            }
+        };
+
+        Ok(Self {
+            inner: Segment::new(rust_precision),
+        })
     }
 
     /// Universally inserts or updates a coordinate entity embedding paired with dynamic structured metadata payloads.
+    ///
+    /// This atomic interface orchestrates concurrent mutations across structural layers. It converts incoming
+    /// dynamic runtime attributes via localized parsers and invokes automatic vector compression pipelines.
+    ///
+    /// # Parameters
+    /// * `point_id` - A unique unsigned 64-bit tracking identifier linking the vector to its transactional registry key.
+    /// * `vector` - A raw floating-point array containing the numerical coordinate features.
+    /// * `payload` - An optional Python dictionary containing polymorphic unstructured metadata filtering primitives.
+    ///
+    /// # Errors
+    /// Returns a validation exception if type transformations fail during structured payload dictionary extraction paths.
     pub fn upsert(
         &self,
         point_id: u64,
@@ -37,11 +66,13 @@ impl PyVectorStorage {
             None => None,
         };
 
-        let point = Point {
-            id: point_id,
-            vector,
-            payload: rust_payload,
-        };
+        // Acquire a transient shared read lock over the partition segment to resolve
+        // the active vector quantization precision state without halting parallel worker lanes.
+        let active_precision = *self.inner.precision.read();
+
+        // Compress and encode the raw coordinate array into a multi-precision container
+        // using the localized structural factory layout initializer.
+        let point = Point::new_quantized(point_id, &vector, active_precision, rust_payload);
 
         self.inner.upsert(point);
         Ok(())
@@ -49,22 +80,26 @@ impl PyVectorStorage {
 
     /// Verifies if a target identifier exists inside the active memory pool partitions.
     ///
+    /// Evaluates tombstone status bitsets to prevent soft-deleted records from leaking back into validation rings.
+    ///
     /// # Parameters
-    /// * `point_id` - Unique tracking key assigned to register the target object.
+    /// * `point_id` - Unique tracking key mapped explicitly to the target entity registry.
     ///
     /// # Returns
-    /// `true` if the entity is registered and has not been flagged by a soft tombstone erasure.
+    /// `true` if the entity is registered and has not been flagged by a soft transaction erase.
     pub fn exists(&self, point_id: u64) -> bool {
         self.inner.exists(point_id)
     }
 
     /// Extracts total records currently tracked inside active partition pools under lock-free constraints.
     ///
+    /// Evaluates isolated tenant sub-volumes if an optional criteria barrier is assigned.
+    ///
     /// # Parameters
     /// * `tenant_id` - Optional string key targeting a specific isolated workspace tenant environment.
     ///
     /// # Returns
-    /// Total count of live records matching specified spatial context parameters.
+    /// Total count of live records active within the runtime partition pool boundary.
     #[pyo3(signature = (tenant_id=None))]
     pub fn count(&self, tenant_id: Option<String>) -> usize {
         self.inner.count(tenant_id.as_deref())
@@ -72,16 +107,34 @@ impl PyVectorStorage {
 
     /// Commits a soft transaction block marker flagging an element as deleted.
     ///
+    /// Removes entity visibility from spatial index routing frameworks instantly while planning
+    /// connection re-weaving patterns for background garbage collection cycles.
+    ///
     /// # Parameters
     /// * `point_id` - Unique transactional database token assigned to register the target object deletion.
     ///
     /// # Returns
-    /// `true` if the entity was tracked down and marked for deletion successfully.
+    /// `true` if the target entity was actively tracked down and marked for deletion successfully.
     pub fn delete(&self, point_id: u64) -> bool {
         self.inner.delete(point_id)
     }
 
     /// Searches the high-dimensional vector space to extract top-K nearest neighbors matching target query configurations.
+    ///
+    /// Routes requests through specialized exact linear sweeps or accelerated logarithmic HNSW graph index traversal
+    /// paths depending on volume thresholds. Enforces single-stage metadata pre-filtering if tenancy tags are provided.
+    ///
+    /// # Parameters
+    /// * `query_vector` - Target uncompressed floating-point coordinates to evaluate across spatial topologies.
+    /// * `limit` - Total capacity depth matching threshold boundaries (Top-K results).
+    /// * `metric` - Configuration metric string token: `'cosine'`, `'dot_product'`, or `'euclidean'`.
+    /// * `tenant_id` - An optional string key used to isolate workspace partitions under multi-tenancy parameters.
+    ///
+    /// # Returns
+    /// A structured Python list containing tuple records formatted as: `[(Point ID, Similarity Score), ...]`.
+    ///
+    /// # Errors
+    /// Throws a `ValueError` exception wrapper if processing pipelines encounter an invalid proximity metric token.
     #[pyo3(signature = (query_vector, limit, metric, tenant_id=None))]
     pub fn search(
         &self,
@@ -110,6 +163,20 @@ impl PyVectorStorage {
     }
 
     /// Executes concurrent high-dimensional batch vector lookups across available hardware processing units.
+    ///
+    /// Leverages a thread-safe fork-join parallel execution map to bypass Python runtime loop overheads and GIL bottlenecks.
+    ///
+    /// # Parameters
+    /// * `query_vectors` - A nested list of multiple analytical floating-point matrix coordinates to process concurrently.
+    /// * `limit` - Total capacity depth matching threshold boundaries per discrete query sequence (Top-K results).
+    /// * `metric` - Configuration metric string token: `'cosine'`, `'dot_product'`, or `'euclidean'`.
+    /// * `tenant_id` - An optional string token used to restrict queries to isolated workspace partitions.
+    ///
+    /// # Returns
+    /// A nested Python list containing ordered matching records arrays: `[[(Point ID, Score), ...], ...]`.
+    ///
+    /// # Errors
+    /// Throws a `ValueError` exception wrapper if processing pipelines encounter an invalid proximity metric token.
     #[pyo3(signature = (query_vectors, limit, metric, tenant_id=None))]
     pub fn batch_search(
         &self,
@@ -144,6 +211,12 @@ impl PyVectorStorage {
     }
 
     /// Commits the running transactional database state snapshot directly onto localized physical storage tracks.
+    ///
+    /// # Parameters
+    /// * `path` - Local system string path path defining where to construct the compressed backup binary asset.
+    ///
+    /// # Errors
+    /// Throws a standard `IOError` if platform security states block file descriptor synchronization workflows.
     pub fn save(&self, path: String) -> PyResult<()> {
         self.inner
             .save_to_disk(&path)
@@ -151,6 +224,12 @@ impl PyVectorStorage {
     }
 
     /// Loads and completely rehydrates a pre-existing storage binary checkpoint file back into active memory pools.
+    ///
+    /// # Parameters
+    /// * `path` - Target local binary snapshot backup location to fetch and parse.
+    ///
+    /// # Errors
+    /// Throws a standard `IOError` if input byte buffers reflect corrupted data structures or historical schema mismatches.
     pub fn load(&self, path: String) -> PyResult<()> {
         self.inner
             .load_from_disk(&path)

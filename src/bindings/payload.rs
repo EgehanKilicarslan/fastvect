@@ -7,13 +7,13 @@ use rustc_hash::FxHashMap;
 
 /// Safely parses a Python dictionary into a native Rust polymorphic `Payload` structure.
 ///
-/// This bridge routine inspects fluid, dynamically-typed Python dictionaries using deterministic
+/// This bridge routine inspects dynamically-typed Python dictionaries using deterministic
 /// runtime type-matching (`is_instance_of`). It maps primitive Python values directly onto
 /// strongly-typed Rust internal enum variants, protecting memory boundaries across the FFI wall.
 ///
 /// # Heuristics
-/// * Short metadata string types ($\le 64$ characters) are automatically routed into the `Keyword` token variant.
-/// * High-capacity string sequences ($> 64$ characters) are seamlessly cataloged as full analytical `Text` fields.
+/// * Short metadata string types (less than or equal to 64 characters) are automatically routed into the `Keyword` token variant.
+/// * High-capacity string sequences (greater than 64 characters) are seamlessly cataloged as full analytical `Text` fields.
 ///
 /// # Parameters
 /// * `dict` - A reference pointer targeting a Python dictionary (`PyDict`) bound to the current GIL lifetime scope.
@@ -26,12 +26,15 @@ use rustc_hash::FxHashMap;
 pub fn parse_python_payload(dict: &Bound<'_, PyDict>) -> PyResult<Payload> {
     let mut map = FxHashMap::default();
 
+    // Iterate through the key-value pairs of the incoming Python dictionary
     for (key, value) in dict.iter() {
         let k_str = key.extract::<String>()?;
 
+        // Runtime type switching using safe reflection queries over Python objects
         if value.is_instance_of::<PyString>() {
             let p_str = value.extract::<String>()?;
 
+            // Dynamic string length routing checkpoint
             if p_str.len() <= 64 {
                 map.insert(k_str, PayloadValue::Keyword(p_str));
             } else {

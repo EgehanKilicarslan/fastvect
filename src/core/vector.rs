@@ -1,5 +1,6 @@
 // src/core/vector.rs
 
+use crate::{QuantizedVector, ScalarQuantizer, StoragePrecision};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
@@ -26,14 +27,42 @@ pub type Payload = FxHashMap<String, PayloadValue>;
 
 /// The foundational atomic architectural entity tracked within the vector index cluster.
 ///
-/// A `Point` encapsulates the operational identity, high-dimensional relational characteristics (embeddings),
+/// A `Point` encapsulates the operational identity, multi-precision compressed embedding layout,
 /// and peripheral unstructured dynamic attributes that construct the underlying data mesh topology.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Point {
     /// Unique transactional identifier mapped explicitly to the embedding entity registry.
     pub id: u64,
-    /// High-dimensional floating-point embedding arrays capturing granular mathematical relationships (e.g., 1536-dimensional arrays).
-    pub vector: Vec<f32>,
+    /// Encapsulated multi-precision quantized vector data partition workspace.
+    pub vector: QuantizedVector,
     /// Highly optional schemaless metadata storage assigned for pre/post structural search filtering matrices.
     pub payload: Option<Payload>,
+}
+
+impl Point {
+    /// Factory initializer providing transparent inline quantization conversions for raw coordinate blocks.
+    ///
+    /// Intercepts the original uncompressed floating-point coordinates at the ingestion boundary,
+    /// routing them directly into compression pipelines before embedding them into the structured `Point` wrapper.
+    ///
+    /// # Parameters
+    /// * `id` - Unique tracking key mapped explicitly to the target entity registry.
+    /// * `raw_vec` - Uncompressed original coordinate array slice.
+    /// * `precision` - Targeted memory layout and compression variant configuration (F32, F16, or F8).
+    /// * `payload` - Optional dictionary mapping string keys to polymorphic primitive filtering values.
+    ///
+    /// # Returns
+    /// An initialized `Point` entity fully prepared for graph insertion and storage layer registration tracks.
+    pub fn new_quantized(
+        id: u64,
+        raw_vec: &[f32],
+        precision: StoragePrecision,
+        payload: Option<Payload>,
+    ) -> Self {
+        Self {
+            id,
+            vector: ScalarQuantizer::quantize(raw_vec, precision),
+            payload,
+        }
+    }
 }

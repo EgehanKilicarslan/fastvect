@@ -1,24 +1,25 @@
 // tests/rust/test_hnsw.rs
 
-use fastvect::{HNSWIndex, Point};
+use fastvect::core::quantization::ScalarQuantizer;
+use fastvect::{HNSWIndex, Point, StoragePrecision};
 use rustc_hash::FxHashMap;
 
 /// Architectural topology verification testing graph generation passes, entryway initialization steps,
 /// and bi-directional linkage weaving within a multi-tiered HNSW mesh.
 #[test]
 fn test_hnsw_index_dynamic_insertion_flow() {
-    // Spin up an isolated index layer managing strict maximum connection degrees ($M=4$)
+    // Spin up an isolated index layer managing strict maximum connection degrees (M=4)
     let mut index = HNSWIndex::new(4, 16, 16);
     let mut points_ref = FxHashMap::default();
 
     let p1 = Point {
         id: 1,
-        vector: vec![1.0, 0.0],
+        vector: ScalarQuantizer::quantize(&[1.0, 0.0], StoragePrecision::F32),
         payload: None,
     };
     let p2 = Point {
         id: 2,
-        vector: vec![0.0, 1.0],
+        vector: ScalarQuantizer::quantize(&[0.0, 1.0], StoragePrecision::F32),
         payload: None,
     };
 

@@ -3,5 +3,6 @@
 pub mod payload;
 pub mod storage;
 
-// Re-exporting for clean internal macro discovery
+/// Root-level re-export of the Python-exposed VectorStorage class.
+/// This acts as the primary FFI boundary orchestration layer.
 pub use storage::PyVectorStorage;
