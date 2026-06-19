@@ -3,6 +3,7 @@
 pub mod distance;
 pub mod filter;
 pub mod quantization;
+pub mod simd;
 pub mod vector;
 
 /// Re-exporting foundational spatial geometry and multi-precision primitives.

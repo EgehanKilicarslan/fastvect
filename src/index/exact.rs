@@ -16,7 +16,7 @@ use rustc_hash::FxHashMap;
 /// * `metric` - The spatial proximity distance formula configuration to execute during evaluation sweeps.
 /// * `points` - Reference to the unmutated primary storage map containing registered database entities.
 /// * `filter` - An optional tenant isolation constraint module used to enforce security boundaries.
-/// * `deleted_bits` - A dense boolean slice tracking operational tombstone bit markers to skip soft-deleted records.
+/// * `deleted_bits` - A structural vector reference tracking transactional tombstone markers to skip soft-deleted records under lock-free constraints.
 ///
 /// # Returns
 /// A sorted collection vector containing matched point identifiers paired with their explicit
@@ -27,27 +27,28 @@ pub fn search_exact_knn(
     metric: DistanceMetric,
     points: &FxHashMap<u64, Point>,
     filter: Option<&Filter>,
-    deleted_bits: &[bool],
+    deleted_bits: &Vec<bool>,
 ) -> Vec<SearchResult> {
     let mut scored_results: Vec<SearchResult> = Vec::new();
 
+    // Iterate sequentially over the flat storage map matrix layout
     for point in points.values() {
         let idx = point.id as usize;
 
-        // Skip immediately if the target node index has been flagged by a soft tombstone transaction.
+        // Skip immediately if the target node index has been flagged by a soft tombstone transaction
         if idx < deleted_bits.len() && deleted_bits[idx] {
             continue;
         }
 
         // SINGLE-STAGE PRE-FILTERING: Drop non-matching tenancy attributes immediately
-        // to prevent wasteful down-stream distance calculation overheads.
+        // to prevent wasteful downstream distance calculation overheads.
         if let Some(f) = filter {
             if !f.matches(&point.payload) {
                 continue;
             }
         }
 
-        // Delegate proximity computation to the polymorphic accelerated distance dispatch engine.
+        // Delegate proximity computation to the polymorphic accelerated distance dispatch engine
         if let Ok(score) = compute_distance(query_vector, &point.vector, metric) {
             scored_results.push((point.id, score, point.payload.clone()));
         }
@@ -66,6 +67,6 @@ pub fn search_exact_knn(
         }
     }
 
-    // Extract the requested nearest neighbors window matching the target depth threshold boundaries.
+    // Extract the requested nearest neighbors window matching the target depth threshold boundaries
     scored_results.into_iter().take(limit).collect()
 }

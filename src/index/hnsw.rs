@@ -51,7 +51,7 @@ impl HNSWIndex {
 
     /// Evaluates a dynamic level assignment using a logarithmic exponential decay distribution function.
     ///
-    /// Normalizes node allocation properties to build scaling hiyerarshies that govern logarithmic graph navigation.
+    /// Normalizes node allocation properties to build scaling hierarchies that govern logarithmic graph navigation.
     fn generate_random_level(&self) -> usize {
         let r: f64 = rand::random::<f64>();
         let factor = 1.0 / (self.m as f64).ln();
@@ -62,7 +62,7 @@ impl HNSWIndex {
         std::cmp::min(level, 15)
     }
 
-    /// Traverses a specific hiyerarshical layer plane using a greedy heuristic approach to isolate the closest local vertex.
+    /// Traverses a specific hierarchical layer plane using a greedy heuristic approach to isolate the closest local vertex.
     ///
     /// # Parameters
     /// * `query_vector` - Dynamic target multi-precision quantized vector to evaluate.
@@ -70,7 +70,7 @@ impl HNSWIndex {
     /// * `level` - The discrete structural matrix layer height index to query.
     /// * `points_ref` - Read reference pointer targeting the unmutated primary database record repository.
     /// * `filter` - Optional tenant boundary restriction configuration module.
-    /// * `deleted_bits` - Dense validation slice tracking historical tombstone bit indicators.
+    /// * `deleted_bits` - Dense validation vector tracking historical tombstone bit indicators under lock-free parameters.
     ///
     /// # Returns
     /// The optimal point identifier matching the closest spatial neighbor discovered on this level track.
@@ -81,7 +81,7 @@ impl HNSWIndex {
         level: usize,
         points_ref: &FxHashMap<u64, Point>,
         filter: Option<&Filter>,
-        deleted_bits: &[bool],
+        deleted_bits: &Vec<bool>,
     ) -> u64 {
         let mut best_node = curr_obj;
         let mut best_dist = match points_ref.get(&best_node) {
@@ -101,13 +101,13 @@ impl HNSWIndex {
                     for &neighbor_id in neighbors {
                         let nid_idx = neighbor_id as usize;
 
-                        // Skip processing loops instantly if the node matches active tombstone indices.
+                        // Check tombstones instantly to prevent traversing soft-deleted segments
                         if nid_idx < deleted_bits.len() && deleted_bits[nid_idx] {
                             continue;
                         }
 
                         if let Some(neighbor_point) = points_ref.get(&neighbor_id) {
-                            // Issue explicit x86 execution hardware cache hints to fetch adjacent data lines early.
+                            // Issue explicit x86 execution hardware cache hints to fetch adjacent data lines early
                             #[cfg(target_arch = "x86_64")]
                             unsafe {
                                 core::arch::x86_64::_mm_prefetch(
@@ -116,7 +116,7 @@ impl HNSWIndex {
                                 );
                             }
 
-                            // Enforce pre-filtering parameters prior to executing expensive spatial proximity tests.
+                            // Enforce metadata single-stage filtering prior to expensive mathematical distance runs
                             if let Some(f) = filter {
                                 if !f.matches(&neighbor_point.payload) {
                                     continue;
@@ -145,7 +145,7 @@ impl HNSWIndex {
         best_node
     }
 
-    /// Evaluates dynamic proximity targets across graph hiyerarshies via optimized $O(\log N)$ traversal paths.
+    /// Evaluates dynamic proximity targets across graph hierarchies via optimized $O(\log N)$ traversal paths.
     ///
     /// Executes greedy macro-routing cascades descending from allocated top layers down to layer 0, shifting
     /// smoothly to a localized dynamic beam search bounded strictly by the configured `ef_search` limits.
@@ -156,7 +156,7 @@ impl HNSWIndex {
     /// * `metric` - Targeted distance proximity metric formula configuration.
     /// * `points_ref` - Shared read pointer linking the query framework to active memory partition maps.
     /// * `filter` - Optional tenant isolation restriction constraint module.
-    /// * `deleted_bits` - Dense validation slice tracking historical tombstone bit indicators.
+    /// * `deleted_bits` - Dense validation vector tracking historical tombstone bit indicators under lock-free parameters.
     ///
     /// # Returns
     /// A sorted vector collection containing matched proximity results paired with operational distance metrics.
@@ -167,7 +167,7 @@ impl HNSWIndex {
         metric: DistanceMetric,
         points_ref: &FxHashMap<u64, Point>,
         filter: Option<&Filter>,
-        deleted_bits: &[bool],
+        deleted_bits: &Vec<bool>,
     ) -> Vec<crate::storage::segment::SearchResult> {
         let enter_node = match self.enter_node {
             Some(node) => node,
@@ -201,10 +201,23 @@ impl HNSWIndex {
 
             let c_idx = curr_obj as usize;
             if c_idx < deleted_bits.len() && deleted_bits[c_idx] {
-                // Skip processing soft-deleted entryway checkpoints.
+                // Skip soft-deleted entryway checkpoints.
             } else {
+                // Entryway is a valid routing candidate to jump further across network nodes
                 candidates.push((dist, curr_obj));
-                results_pool.push((dist, curr_obj));
+
+                // FIXED: Enforce strict single-stage metadata verification before letting the
+                // entryway node inject itself into the final results pool tracker to prevent topological leakage!
+                let mut is_match = true;
+                if let Some(f) = filter {
+                    if !f.matches(&p.payload) {
+                        is_match = false;
+                    }
+                }
+
+                if is_match {
+                    results_pool.push((dist, curr_obj));
+                }
             }
 
             if c_idx < visited.len() {
@@ -263,7 +276,7 @@ impl HNSWIndex {
                                 candidates.push((dist, neighbor_id));
                                 results_pool.push((dist, neighbor_id));
 
-                                // Bound the pool strictly matching structural `ef_search` metric weights.
+                                // Bound the result pool matching target search widths
                                 if results_pool.len() > self.ef_search {
                                     results_pool.sort_by(|a, b| {
                                         a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
@@ -304,7 +317,7 @@ impl HNSWIndex {
             }
         }
 
-        // Apply global sorting transformations native to the targeted metric topology constraints.
+        // Apply dynamic sorting passes tailored to the mathematical metric constraints
         match metric {
             DistanceMetric::DotProduct | DistanceMetric::Cosine => {
                 final_scored_results
@@ -354,16 +367,33 @@ impl HNSWIndex {
 
         let mut curr_obj = curr_enter_node;
 
+        // Created a localized dummy empty Vec to satisfy the lock-free type signatures without allocations
+        let empty_deleted_bits = Vec::new();
+
         // Routing Cascade Pass: Traverse down from max peak towards insertion level heights.
         if insert_level < self.max_current_level {
             for level in (insert_level + 1..=self.max_current_level).rev() {
-                curr_obj = self.search_layer(vector, curr_obj, level, points_ref, None, &[]);
+                curr_obj = self.search_layer(
+                    vector,
+                    curr_obj,
+                    level,
+                    points_ref,
+                    None,
+                    &empty_deleted_bits,
+                );
             }
         }
 
         // Connection Stitching Pass: Connect and weave bilateral adjacency lists matching degree limit matrix configurations.
         for level in (0..=std::cmp::min(insert_level, self.max_current_level)).rev() {
-            curr_obj = self.search_layer(vector, curr_obj, level, points_ref, None, &[]);
+            curr_obj = self.search_layer(
+                vector,
+                curr_obj,
+                level,
+                points_ref,
+                None,
+                &empty_deleted_bits,
+            );
 
             if let Some(neighbor_node) = self.nodes.get_mut(&curr_obj) {
                 let neighbors_list = &mut neighbor_node.neighbors[level];

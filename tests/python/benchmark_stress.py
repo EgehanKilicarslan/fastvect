@@ -14,14 +14,20 @@ from typing import Literal
 import fastvect
 
 # --- CONFIGURATION MATRICES ---
-DIMENSION: int = 128  # High-dimensional embedding configuration space
-TOTAL_POINTS: int = (
-    5000  # Guarantees HNSW hierarchical lane fallback trigger (>500 nodes)
+DIMENSION: int = (
+    1536  # Industry-standard dimension (OpenAI text-embedding-3-large / Cohere v3)
 )
-TOP_K: int = 10  # Total nearest neighbors depth threshold (Top-K results)
-QUERY_ITERATIONS: int = 1000  # Total queries sent inside the hardware traversal loops
-BENCHMARK_RUNS: int = 5  # Statistical iterations to isolate thermal or OS throttling
-TEST_TENANTS: list[str] = ["tenant_alpha", "tenant_beta", "tenant_gamma"]
+TOTAL_POINTS: int = (
+    50_000  # 50K vectors over 1536-dim forces real-world RAM-bound cache misses
+)
+TOP_K: int = 10  # Standard operational nearest neighbors depth
+QUERY_ITERATIONS: int = (
+    5000  # Lowered slightly to offset huge dimension traversal times
+)
+BENCHMARK_RUNS: int = 3  # Sufficient for statistical smoothing without melting the CPU
+TEST_TENANTS: list[str] = [
+    f"tenant_{i}" for i in range(10)
+]  # Multi-tenancy noise generation (10 isolated spaces)
 PRECISION_MODES: list[Literal["f32", "f16", "f8"]] = ["f32", "f16", "f8"]
 
 # Enforce system determinism across database generation runs

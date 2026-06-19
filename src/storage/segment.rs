@@ -9,76 +9,76 @@ use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// Tuple mapping for query lookup outputs: `(Point ID, Distance Score, Payload Metadata)`
+/// Tuple mapping defining the standard structure for lookup outputs: `(Point ID, Distance Score, Payload Metadata)`.
 pub type SearchResult = (u64, f32, Option<Payload>);
 
-/// A synchronized atomic memory partition layer directing multi-precision vector operations across threads.
+/// Centralized state configuration holding the un-locked core database spaces.
 ///
-/// This component acts as an isolated data segment shard, coordinating thread-safe vector ingestions,
-/// metadata tracking counters, graph index alignments, and transaction-isolated search sweeps.
+/// Groups primary indexes and multi-tenant telemetry structures to allow single-barrier
+/// synchronization states across variant thread execution tracks.
+pub struct SegmentState {
+    /// Global repository containing physical vector records paired with their metadata blocks.
+    pub points: FxHashMap<u64, Point>,
+    /// Underlying Hierarchical Navigable Small World index graph framework.
+    pub hnsw_index: HNSWIndex,
+    /// Dense tracking bitset mapping soft transactional deletion indicators.
+    pub deleted_bits: Vec<bool>,
+    /// Thread-safe map tracking isolated record metrics allocated per individual workspace tenant.
+    pub tenant_counters: FxHashMap<String, AtomicUsize>,
+    /// Numerical floating-point compression configuration format assigned to this partition instance.
+    pub precision: StoragePrecision,
+}
+
+/// A synchronized memory partition layer directing lock-free concurrent query flows.
+///
+/// Orchestrates safe high-velocity parallel processing loops by establishing a single top-level
+/// read/write guard mechanism over vulnerable internal structural allocations.
 pub struct Segment {
-    points: RwLock<FxHashMap<u64, Point>>,
-    hnsw_index: RwLock<HNSWIndex>,
-    deleted_bits: RwLock<Vec<bool>>,
-    tenant_counters: RwLock<FxHashMap<String, AtomicUsize>>,
-    global_counter: AtomicUsize,
-    /// Wrapped inside an explicit `RwLock` to support mutation patterns safely
-    /// during snapshot rehydration without invoking undefined reference casting behavior.
-    pub precision: RwLock<StoragePrecision>,
+    /// Wrapped architecture layout containing localized core execution components.
+    pub state: RwLock<SegmentState>,
+    /// Global lock-free counter capturing total active historical items.
+    pub global_counter: AtomicUsize,
 }
 
 impl Segment {
-    /// Instantiates a new, empty synchronized memory partition segment with explicit precision parameters.
+    /// Instantiates an empty, synchronized partition segment workspace initialized with exact quantization specs.
     ///
-    /// Configures the core underlying HNSW index state machine automatically using fine-tuned
-    /// hyperparameters ($M=16, ef_{construction}=128, ef_{search}=64$) optimized to withstand quantization errors.
+    /// Automatically provisions baseline parameters targeting production-grade spatial indexing demands.
     ///
     /// # Parameters
-    /// * `precision` - The initial target compression and storage precision configuration for this shard.
+    /// * `precision` - The initial compression layout and quantization parameters assigned to this segment shard.
     pub fn new(precision: StoragePrecision) -> Self {
         Self {
-            points: RwLock::new(FxHashMap::default()),
-            hnsw_index: RwLock::new(HNSWIndex::new(16, 128, 64)),
-            deleted_bits: RwLock::new(Vec::new()),
-            tenant_counters: RwLock::new(FxHashMap::default()),
+            state: RwLock::new(SegmentState {
+                points: FxHashMap::default(),
+                hnsw_index: HNSWIndex::new(16, 128, 64),
+                deleted_bits: Vec::new(),
+                tenant_counters: FxHashMap::default(),
+                precision,
+            }),
             global_counter: AtomicUsize::new(0),
-            precision: RwLock::new(precision),
         }
     }
 
-    /// Validates if a target data key exists inside the storage memory pool.
-    ///
-    /// Intercepts the query track by scanning the dense tombstone vector bitset first,
-    /// preventing soft-deleted point allocations from wasting index traversal steps.
-    ///
-    /// # Parameters
-    /// * `point_id` - Unique key identifier targeting the entity registry mapping.
-    ///
-    /// # Returns
-    /// `true` if the object is actively registered and has not been flagged as soft-deleted.
+    /// Validates if a target entity identifier actively exists inside the local database partitions.
     pub fn exists(&self, point_id: u64) -> bool {
+        let guard = self.state.read();
         let idx = point_id as usize;
-        let deleted_guard = self.deleted_bits.read();
 
-        if idx < deleted_guard.len() && deleted_guard[idx] {
+        // Immediately catch matching soft transactional tombstones to prevent data leakage paths
+        if idx < guard.deleted_bits.len() && guard.deleted_bits[idx] {
             return false;
         }
 
-        self.points.read().contains_key(&point_id)
+        guard.points.contains_key(&point_id)
     }
 
-    /// Extracts total records matching optional tenancy isolation criteria under lock-free atomic states.
-    ///
-    /// # Parameters
-    /// * `tenant_id` - Optional string slice context to query localized sub-volume counter maps.
-    ///
-    /// # Returns
-    /// Total count of live records tracked inside the targeted operational context.
+    /// Extracts total records currently allocated within designated multi-tenancy bounds using lock-free atomic states.
     pub fn count(&self, tenant_id: Option<&str>) -> usize {
         match tenant_id {
             Some(tid) => {
-                let guard = self.tenant_counters.read();
-                if let Some(counter) = guard.get(tid) {
+                let guard = self.state.read();
+                if let Some(counter) = guard.tenant_counters.get(tid) {
                     counter.load(Ordering::Relaxed)
                 } else {
                     0
@@ -88,21 +88,15 @@ impl Segment {
         }
     }
 
-    /// Places a transactional tombstone bit marker flagging an element as deleted.
+    /// Commits a soft transaction tombstone block marker flagging an element as deleted.
     ///
-    /// Safely updates the global register by removing the raw point entry under an explicit lock mutation window
-    /// while decrementing synchronized atomic workspace tenant tracking counters.
-    ///
-    /// # Parameters
-    /// * `point_id` - Unique transactional database token assigned to register the target object deletion.
-    ///
-    /// # Returns
-    /// `true` if the entity was actively tracked down and marked for deletion successfully.
+    /// Instantly disconnects record visibility from spatial indexes while preparing data paths
+    /// for down-stream cleanups without introducing high thread latencies.
     pub fn delete(&self, point_id: u64) -> bool {
         let idx = point_id as usize;
-        let mut points_guard = self.points.write();
+        let mut guard = self.state.write();
 
-        if let Some(point) = points_guard.remove(&point_id) {
+        if let Some(point) = guard.points.remove(&point_id) {
             self.global_counter.fetch_sub(1, Ordering::Relaxed);
             if let Some(payload) = &point.payload {
                 if let Some(tenant_val) = payload.get("tenant_id") {
@@ -113,31 +107,26 @@ impl Segment {
                     };
 
                     if let Some(tid) = tenant_str {
-                        let tenant_guard = self.tenant_counters.read();
-                        if let Some(counter) = tenant_guard.get(tid) {
+                        if let Some(counter) = guard.tenant_counters.get(tid) {
                             counter.fetch_sub(1, Ordering::Relaxed);
                         }
                     }
                 }
             }
 
-            let mut deleted_guard = self.deleted_bits.write();
-            if idx >= deleted_guard.len() {
-                deleted_guard.resize(idx + 1, false);
+            if idx >= guard.deleted_bits.len() {
+                guard.deleted_bits.resize(idx + 1, false);
             }
-            deleted_guard[idx] = true;
+            guard.deleted_bits[idx] = true;
             return true;
         }
         false
     }
 
-    /// Inserts or updates a multi-precision data entity inside the storage partition.
+    /// Inserts or updates a multi-precision data entity inside the centralized partition state.
     ///
-    /// Handles record life cycles by checking historical tombstone state vectors, performing thread-safe
-    /// database registration updates, and inserting node linkages into the underlying HNSW graph mesh.
-    ///
-    /// # Parameters
-    /// * `point` - The target initialized `Point` entity layout package to persist inside the partition.
+    /// Clears downstream soft tombstone markers if data keys undergo re-ingestion, updates tracking metrics,
+    /// and weaves node relationships securely into the global graphical layout.
     pub fn upsert(&self, point: Point) {
         let point_id = point.id;
         let vector_clone = point.vector.clone();
@@ -154,44 +143,37 @@ impl Segment {
             }
         }
 
-        // Clear historical soft tombstone indicators if the record undergoes re-ingestion tracks.
-        let mut deleted_guard = self.deleted_bits.write();
-        if idx < deleted_guard.len() && deleted_guard[idx] {
-            deleted_guard[idx] = false;
+        let mut guard = self.state.write();
+        if idx < guard.deleted_bits.len() && guard.deleted_bits[idx] {
+            guard.deleted_bits[idx] = false;
         }
 
-        let mut write_guard = self.points.write();
-        let is_update = write_guard.insert(point_id, point).is_some();
+        let is_update = guard.points.insert(point_id, point).is_some();
 
-        // Increment structural concurrent atomic metrics if the transaction adds a new unique record.
         if !is_update {
             self.global_counter.fetch_add(1, Ordering::Relaxed);
             if let Some(tid) = tenant_id {
-                let mut tenant_guard = self.tenant_counters.write();
-                let counter = tenant_guard
+                let counter = guard
+                    .tenant_counters
                     .entry(tid)
                     .or_insert_with(|| AtomicUsize::new(0));
                 counter.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        let mut index_guard = self.hnsw_index.write();
-        index_guard.insert(point_id, &vector_clone, &write_guard);
+        // FIXED: Destructured the centralized write guard into separated independent references
+        // to conform with Rust's strict borrow-checker aliasing rules effortlessly.
+        let SegmentState {
+            points, hnsw_index, ..
+        } = &mut *guard;
+
+        hnsw_index.insert(point_id, &vector_clone, points);
     }
 
-    /// Searches the multi-precision vector space using unified execution routing hot paths.
+    /// Executes high-velocity concurrent vector space lookups with zero long-lived lock contention.
     ///
-    /// Intercepts incoming uncompressed feature queries, compressing them via the localized
-    /// precision layout schema before dispatching lookups across linear exact or logarithmic graph index structures.
-    ///
-    /// # Parameters
-    /// * `query_vector` - Uncompressed raw floating-point query array slice coming from the runtime boundary.
-    /// * `limit` - Total top-K nearest neighbors depth window window to collect and slice.
-    /// * `metric` - Proximity metric formula type targeting specific coordinate space evaluation tracks.
-    /// * `filter` - An optional tenant validation constraint module used to enforce isolation fields.
-    ///
-    /// # Returns
-    /// A sorted collection vector containing matched proximity results paired with operational metric scores.
+    /// Workers establish a single unified read barrier at entry, proceeding into computational layers
+    /// with zero internal threading friction to fully saturate processing hardware threads.
     pub fn search(
         &self,
         query_vector: &[f32],
@@ -199,62 +181,48 @@ impl Segment {
         metric: DistanceMetric,
         filter: Option<&Filter>,
     ) -> Vec<SearchResult> {
-        let points_guard = self.points.read();
-        let index_guard = self.hnsw_index.read();
-        let deleted_guard = self.deleted_bits.read();
-        let total_points = points_guard.len();
+        // Shared configuration state is extracted via a single macro lock check pass
+        let guard = self.state.read();
 
-        // Acquire a transient shared read lock to resolve the segment's active storage precision state.
-        let current_precision = *self.precision.read();
+        let current_precision = guard.precision;
         let quantized_query = ScalarQuantizer::quantize(query_vector, current_precision);
+        let total_points = guard.points.len();
 
-        // Dynamically route tasks: low-volume partitions trigger linear scans, high-volume segments fire HNSW steps.
+        // Dynamic task router: Small data pools trigger exact linear passes; mass arrays fire greedy HNSW passes
         if total_points < 500 {
             search_exact_knn(
                 &quantized_query,
                 limit,
                 metric,
-                &points_guard,
+                &guard.points,
                 filter,
-                &deleted_guard,
+                &guard.deleted_bits,
             )
         } else {
-            index_guard.search(
+            // High-speed index traversal sweeping interior kilit-free structures concurrently
+            guard.hnsw_index.search(
                 &quantized_query,
                 limit,
                 metric,
-                &points_guard,
+                &guard.points,
                 filter,
-                &deleted_guard,
+                &guard.deleted_bits,
             )
         }
     }
 
-    /// Commits the running quantized database segment snapshot directly to a localized binary asset.
-    ///
-    /// Uses Postcard binary stream encoders to pipe active memory maps, graph state registries,
-    /// tombstone vectors, and structural precision configurations into a zero-copy asset format.
-    ///
-    /// # Parameters
-    /// * `path` - Local file system path tracking where to materialize the output binary snapshot file.
-    ///
-    /// # Errors
-    /// Returns an error string if disk creation markers fail or if encoding pipelines encounter serialization crashes.
+    /// Serializes and flushes the entire database segment snapshot directly into a zero-copy postcard asset file.
     pub fn save_to_disk<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
-        let points_guard = self.points.read();
-        let index_guard = self.hnsw_index.read();
-        let deleted_guard = self.deleted_bits.read();
-        let precision_guard = self.precision.read();
-
+        let guard = self.state.read();
         let file =
             File::create(path).map_err(|e| format!("Failed to create snapshot file: {}", e))?;
         let mut writer = BufWriter::new(file);
 
         let serializable_data = (
-            &*points_guard,
-            &*index_guard,
-            &*deleted_guard,
-            &*precision_guard,
+            &guard.points,
+            &guard.hnsw_index,
+            &guard.deleted_bits,
+            &guard.precision,
         );
         let serialized_bytes = postcard::to_allocvec(&serializable_data)
             .map_err(|e| format!("Postcard binary serialization pipeline failure: {}", e))?;
@@ -265,16 +233,7 @@ impl Segment {
         Ok(())
     }
 
-    /// Loads and rehydrates a pre-existing storage binary checkpoint file back into active memory pools.
-    ///
-    /// Hydrates target components simultaneously under a clean transaction window, updating atomic trackers
-    /// and resetting schema layouts without breaking parallel execution pipeline lanes.
-    ///
-    /// # Parameters
-    /// * `path` - Target local binary file location to fetch, open, and decode.
-    ///
-    /// # Errors
-    /// Returns an error string if input byte buffers reflect corrupted records or historical structural mismatches.
+    /// Fully rehydrates and loads historical data checkpoints back into the runtime storage memory spaces.
     pub fn load_from_disk<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let file = File::open(path).map_err(|e| format!("Failed to open snapshot file: {}", e))?;
         let mut reader = BufReader::new(file);
@@ -292,19 +251,15 @@ impl Segment {
         ) = postcard::from_bytes(&raw_bytes)
             .map_err(|e| format!("Postcard binary deserialization pipeline failure: {}", e))?;
 
-        // Calibrate atomic volume tracking gauges to match newly rehydrated structural registers.
+        // Synchronize and calibrate atomic volume telemetry gauges to match structural state logs
         self.global_counter
             .store(loaded_points.len(), Ordering::Relaxed);
 
-        let mut points_guard = self.points.write();
-        let mut index_guard = self.hnsw_index.write();
-        let mut deleted_guard = self.deleted_bits.write();
-        let mut precision_guard = self.precision.write();
-
-        *points_guard = loaded_points;
-        *index_guard = loaded_index;
-        *deleted_guard = loaded_deleted;
-        *precision_guard = loaded_precision;
+        let mut guard = self.state.write();
+        guard.points = loaded_points;
+        guard.hnsw_index = loaded_index;
+        guard.deleted_bits = loaded_deleted;
+        guard.precision = loaded_precision;
 
         Ok(())
     }
