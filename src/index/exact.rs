@@ -2,7 +2,7 @@
 
 use crate::core::distance::{cosine_similarity, dot_product, euclidean_distance};
 use crate::{DistanceMetric, Filter, Point, SearchResult};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Executes an $O(N)$ high-precision sequential evaluation scan across a targeted vector data space.
 ///
@@ -16,6 +16,7 @@ use std::collections::HashMap;
 /// * `metric` - The spatial distance formula to execute during geometric evaluation sweeps.
 /// * `points` - A reference link pointing to the unmutated storage mapping containing registered database entities.
 /// * `filter` - An optional multi-tenancy restriction boundary used to isolate vector partitions.
+/// * `deleted_bits` - A slice tracking tombstone data record deletions to bypass soft-deleted points.
 ///
 /// # Returns
 /// A sorted vector collection containing matched indices paired with their mathematical proximity scores and structural metadata.
@@ -23,12 +24,20 @@ pub fn search_exact_knn(
     query_vector: &[f32],
     limit: usize,
     metric: DistanceMetric,
-    points: &HashMap<u64, Point>,
+    points: &FxHashMap<u64, Point>,
     filter: Option<&Filter>,
+    deleted_bits: &[bool],
 ) -> Vec<SearchResult> {
     let mut scored_results: Vec<SearchResult> = Vec::new();
 
     for point in points.values() {
+        let idx = point.id as usize;
+
+        // Skip immediately if the point has been marked as deleted via tombstone bitset
+        if idx < deleted_bits.len() && deleted_bits[idx] {
+            continue;
+        }
+
         // SINGLE-STAGE PRE-FILTERING: Drop non-matching tenants immediately to bypass distance overheads
         if let Some(f) = filter {
             if !f.matches(&point.payload) {

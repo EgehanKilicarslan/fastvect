@@ -1,9 +1,9 @@
 """
 Integration test suite for the fastvect high-performance vector storage engine.
 
-This module validates structural memory transitions, polymorphic payload conversions,
-spatial search approximations, multi-tenancy soft isolation barriers, and binary
-persistence operations using pytest assertions.
+Validates structural memory transitions, polymorphic payload conversions,
+spatial search approximations, multi-tenancy soft isolation barriers,
+new management APIs (count, delete, exists), and binary persistence operations.
 """
 
 import os
@@ -24,7 +24,6 @@ def snapshot_cleanup() -> Generator[str, None, None]:
     """
     target_file = "integration_snapshot.bin"
     yield target_file
-    # Teardown phase: Safely sweep disk layers regardless of execution success
     if os.path.exists(target_file):
         os.remove(target_file)
 
@@ -40,18 +39,14 @@ def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
         snapshot_cleanup (str): Fixture injected path targeting file persistence checks.
     """
     snapshot_file = snapshot_cleanup
-
-    # Initialize the core storage component wrapped from Rust
     storage = fastvect.VectorStorage()
 
-    # 1. Pipeline Verification: Upsert entries with structured metadata matrices
     storage.upsert(
         point_id=1,
         vector=[0.1, 0.2, 0.3, 0.4],
         payload={"status": "production", "version": 1, "threshold": 0.95},
     )
 
-    # Intentionally trigger the Text variant by pushing a string exceeding 64 characters
     storage.upsert(
         point_id=2,
         vector=[0.9, 0.8, 0.7, 0.6],
@@ -61,7 +56,6 @@ def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
         },
     )
 
-    # 2. Match Validation: Run cosine spatial evaluations near targeted clusters
     query = [0.12, 0.18, 0.32, 0.38]
     results = storage.search(query_vector=query, limit=1, metric="cosine")
 
@@ -74,7 +68,6 @@ def test_vector_storage_lifecycle(snapshot_cleanup: str) -> None:
     )
     assert score > 0.95, "Calculated cosine index metrics should map close proximity."
 
-    # 3. Continuity Verification: Save snapshot and rehydrate from an isolated instance
     storage.save(snapshot_file)
     assert os.path.exists(snapshot_file), (
         "The persistence layer failed to flush bytecode arrays to disk."
@@ -101,15 +94,12 @@ def test_vector_storage_single_stage_tenancy_filtration() -> None:
     """
     storage = fastvect.VectorStorage()
 
-    # 1. Seed workspace partitions separating tenant_alpha from tenant_beta
-    # Point 1 is mathematically closest to the query but explicitly tied to tenant_alpha
     storage.upsert(
         point_id=1,
         vector=[0.1, 0.1, 0.1, 0.1],
         payload={"tenant_id": "tenant_alpha", "scope": "internal"},
     )
 
-    # Point 2 sits further away and is explicitly locked under tenant_beta properties
     storage.upsert(
         point_id=2,
         vector=[0.8, 0.8, 0.8, 0.8],
@@ -117,8 +107,6 @@ def test_vector_storage_single_stage_tenancy_filtration() -> None:
     )
 
     query = [0.12, 0.12, 0.12, 0.12]
-
-    # 2. Verify Tenancy Gatekeeper: Execute spatial search restricted to tenant_alpha boundaries
     results_alpha = storage.search(
         query_vector=query, limit=2, metric="cosine", tenant_id="tenant_alpha"
     )
@@ -130,7 +118,6 @@ def test_vector_storage_single_stage_tenancy_filtration() -> None:
         "The core search logic returned an incorrect entity key under tenant filtering fields."
     )
 
-    # 3. Reverse Boundaries: Execute spatial search restricted to tenant_beta boundaries
     results_beta = storage.search(
         query_vector=query, limit=2, metric="cosine", tenant_id="tenant_beta"
     )
@@ -141,3 +128,80 @@ def test_vector_storage_single_stage_tenancy_filtration() -> None:
     assert results_beta[0][0] == 2, (
         "Analytical data routing paths cross-contaminated workspace boundaries."
     )
+
+
+def test_vector_storage_management_api() -> None:
+    """
+    Validates structural integrity boundaries for data exist, count, and delete interfaces.
+
+    Ensures tombstone markers hide deleted entities from search paths instantly and safely
+    mutates data volume status representations.
+    """
+    storage = fastvect.VectorStorage()
+
+    assert not storage.exists(point_id=100)
+    assert storage.count() == 0
+
+    storage.upsert(
+        point_id=100, vector=[0.5, 0.5, 0.5], payload={"tenant_id": "tenant_gamma"}
+    )
+
+    assert storage.exists(point_id=100)
+    assert storage.count() == 1
+
+    query = [0.5, 0.5, 0.5]
+    before_delete_hits = storage.search(query_vector=query, limit=1, metric="cosine")
+    assert len(before_delete_hits) == 1
+
+    delete_success = storage.delete(point_id=100)
+    assert delete_success, (
+        "The deletion engine failed to process valid active record removals."
+    )
+
+    assert not storage.exists(point_id=100), (
+        "Tombstone constraints failed to soft-delete the entity visibility."
+    )
+    assert storage.count() == 0, (
+        "Global transaction counters failed to decrement metrics post-deletion."
+    )
+
+    after_delete_hits = storage.search(query_vector=query, limit=1, metric="cosine")
+    assert len(after_delete_hits) == 0, (
+        "Soft-deleted records leaked into active HNSW graph traversal lookups."
+    )
+
+
+def test_vector_storage_global_and_tenant_counters() -> None:
+    """
+    Verifies lock-free atomic transactional counter isolation properties.
+
+    Asserts that specifying optional tenant filters correctly isolates segment
+    sub-volumes without bleeding metrics into opposing environments.
+    """
+    storage = fastvect.VectorStorage()
+
+    storage.upsert(
+        point_id=10, vector=[0.1, 0.2], payload={"tenant_id": "tenant_alpha"}
+    )
+    storage.upsert(
+        point_id=20, vector=[0.3, 0.4], payload={"tenant_id": "tenant_alpha"}
+    )
+    storage.upsert(point_id=30, vector=[0.5, 0.6], payload={"tenant_id": "tenant_beta"})
+
+    assert storage.count() == 3, (
+        "Global transaction counter tracked a mismatched total capacity volume."
+    )
+    assert storage.count(tenant_id="tenant_alpha") == 2, (
+        "Tenant counter sub-indices failed to accurately parse target alpha contexts."
+    )
+    assert storage.count(tenant_id="tenant_beta") == 1, (
+        "Tenant counter sub-indices failed to accurately parse target beta contexts."
+    )
+    assert storage.count(tenant_id="tenant_omega") == 0, (
+        "Missing tenant contexts must fall back cleanly to a zero integer state."
+    )
+
+    _ = storage.delete(point_id=10)
+    assert storage.count() == 2
+    assert storage.count(tenant_id="tenant_alpha") == 1
+    assert storage.count(tenant_id="tenant_beta") == 1

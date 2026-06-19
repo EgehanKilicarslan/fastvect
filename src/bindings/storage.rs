@@ -18,9 +18,6 @@ pub struct PyVectorStorage {
 #[pymethods]
 impl PyVectorStorage {
     /// Instantiates a new, isolated production-grade `VectorStorage` workspace environment.
-    ///
-    /// Allocates the internal atomic storage segment and pre-configures memory block parameters
-    /// required for safe multi-threaded operation execution lanes.
     #[new]
     pub fn new() -> Self {
         Self {
@@ -29,17 +26,6 @@ impl PyVectorStorage {
     }
 
     /// Universally inserts or updates a coordinate entity embedding paired with dynamic structured metadata payloads.
-    ///
-    /// This atomic interface orchestrates memory lock updates across spatial configurations. It converts
-    /// incoming structured attributes via localized parsers and triggers automatic HNSW graph re-weaving updates.
-    ///
-    /// # Parameters
-    /// * `point_id` - A unique unsigned 64-bit identifier linking the coordinates to its transactional registry key.
-    /// * `vector` - A Python float list containing the raw coordinate tracking geometry parameters.
-    /// * `payload` - An optional Python dictionary containing polymorphic data filters.
-    ///
-    /// # Errors
-    /// Returns an operational initialization exception if underlying dictionary types fail transformation.
     pub fn upsert(
         &self,
         point_id: u64,
@@ -61,23 +47,41 @@ impl PyVectorStorage {
         Ok(())
     }
 
-    /// Searches the high-dimensional vector space to extract top-K nearest neighbors matching target query configurations.
-    ///
-    /// This framework evaluates cluster density bounds at runtime to seamlessly route lookups via exact linear
-    /// KNN sweeps or optimized logarithmic HNSW structural mesh traversal loops. It enforces single-stage
-    /// pre-filtering if an optional tenant constraint is provided.
+    /// Verifies if a target identifier exists inside the active memory pool partitions.
     ///
     /// # Parameters
-    /// * `query_vector` - Target float matrix coordinates to evaluate across spatial topologies.
-    /// * `limit` - The total depth matching threshold boundary (Top-K) to harvest from active memory slots.
-    /// * `metric` - Configuration string matching supported parameters: `'cosine'`, `'dot_product'`, or `'euclidean'`.
-    /// * `tenant_id` - An optional string key used to isolate workspace partitions under active multi-tenancy rules.
+    /// * `point_id` - Unique tracking key assigned to register the target object.
     ///
     /// # Returns
-    /// A structured Python list containing tuple records formatted as: `(Point ID, Proximity Similarity Score)`.
+    /// `true` if the entity is registered and has not been flagged by a soft tombstone erasure.
+    pub fn exists(&self, point_id: u64) -> bool {
+        self.inner.exists(point_id)
+    }
+
+    /// Extracts total records currently tracked inside active partition pools under lock-free constraints.
     ///
-    /// # Errors
-    /// Throws a `ValueError` exception wrapper if parsing passes encounter unrecognized metric tokens.
+    /// # Parameters
+    /// * `tenant_id` - Optional string key targeting a specific isolated workspace tenant environment.
+    ///
+    /// # Returns
+    /// Total count of live records matching specified spatial context parameters.
+    #[pyo3(signature = (tenant_id=None))]
+    pub fn count(&self, tenant_id: Option<String>) -> usize {
+        self.inner.count(tenant_id.as_deref())
+    }
+
+    /// Commits a soft transaction block marker flagging an element as deleted.
+    ///
+    /// # Parameters
+    /// * `point_id` - Unique transactional database token assigned to register the target object deletion.
+    ///
+    /// # Returns
+    /// `true` if the entity was tracked down and marked for deletion successfully.
+    pub fn delete(&self, point_id: u64) -> bool {
+        self.inner.delete(point_id)
+    }
+
+    /// Searches the high-dimensional vector space to extract top-K nearest neighbors matching target query configurations.
     #[pyo3(signature = (query_vector, limit, metric, tenant_id=None))]
     pub fn search(
         &self,
@@ -92,15 +96,12 @@ impl PyVectorStorage {
             "euclidean" | "l2" => DistanceMetric::HighPrecisionEuclidean,
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
-                    "Unsupported metric option. Choose from: 'cosine', 'dot_product' ('dot'), or 'euclidean' ('l2').",
+                    "Unsupported metric option. Choose from: 'cosine', 'dot_product', or 'euclidean'.",
                 ));
             }
         };
 
-        // Construct the core filtration layer from the incoming Python runtime arguments
         let rust_filter = tenant_id.map(Filter::new);
-
-        // Defer downstream routing paths seamlessly using our filter references
         let hits = self
             .inner
             .search(&query_vector, limit, rust_metric, rust_filter.as_ref());
@@ -109,21 +110,6 @@ impl PyVectorStorage {
     }
 
     /// Executes concurrent high-dimensional batch vector lookups across available hardware processing units.
-    ///
-    /// This engine utilizes a thread-safe parallel processing map (Rayon) to bypass Python runtime loop
-    /// overheads. It drives multi-tenant graph filtering routines simultaneously across the matrix block workspace.
-    ///
-    /// # Parameters
-    /// * `query_vectors` - A nested list of multiple analytical float matrix coordinates to process concurrently.
-    /// * `limit` - The targeted depth capacity matching threshold (Top-K) to extract per discrete query sequence.
-    /// * `metric` - Configuration metric string token: `'cosine'`, `'dot_product'`, or `'euclidean'`.
-    /// * `tenant_id` - An optional string token used to restrict queries to specific isolated tenancy environments.
-    ///
-    /// # Returns
-    /// A nested Python list containing ordered matching records arrays formatted as: `[[(Point ID, Score), ...], ...]`.
-    ///
-    /// # Errors
-    /// Throws a `ValueError` exception wrapper if the target parsing sequence processes an unknown structural metric token.
     #[pyo3(signature = (query_vectors, limit, metric, tenant_id=None))]
     pub fn batch_search(
         &self,
@@ -144,8 +130,6 @@ impl PyVectorStorage {
         };
 
         let rust_filter = tenant_id.map(Filter::new);
-
-        // Parallel map pass deploying cross-crate work-stealing loops without lock contentions
         let batch_results: Vec<Vec<(u64, f32)>> = query_vectors
             .par_iter()
             .map(|query_vector| {
@@ -160,12 +144,6 @@ impl PyVectorStorage {
     }
 
     /// Commits the running transactional database state snapshot directly onto localized physical storage tracks.
-    ///
-    /// # Parameters
-    /// * `path` - The string location defining where to construct the output binary serialization snapshot asset.
-    ///
-    /// # Errors
-    /// Throws an asynchronous `IOError` if system partitions block file descriptor allocation workflows.
     pub fn save(&self, path: String) -> PyResult<()> {
         self.inner
             .save_to_disk(&path)
@@ -173,12 +151,6 @@ impl PyVectorStorage {
     }
 
     /// Loads and completely rehydrates a pre-existing storage binary checkpoint file back into active memory pools.
-    ///
-    /// # Parameters
-    /// * `path` - Target system path targeting the binary database record file to extract.
-    ///
-    /// # Errors
-    /// Throws a standard `IOError` if input buffers contain broken byte signatures or version mismatches.
     pub fn load(&self, path: String) -> PyResult<()> {
         self.inner
             .load_from_disk(&path)

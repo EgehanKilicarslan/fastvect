@@ -2,15 +2,14 @@
 
 use fastvect::core::distance::{cosine_similarity, dot_product, euclidean_distance};
 use fastvect::{PayloadValue, Point};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Technical verification sequence confirming that the unstructured `Payload` state
 /// behaves as a valid, polymorphic data carrier optimized for semantic cache stores.
 #[test]
 fn test_semantic_cache_payload_structure() {
-    let mut cache_payload = HashMap::new();
+    let mut cache_payload = FxHashMap::default();
 
-    // Mocking an operational JSON completion response payload inside our variant mapping
     cache_payload.insert(
         "cached_response".to_string(),
         PayloadValue::Text(
@@ -25,7 +24,6 @@ fn test_semantic_cache_payload_structure() {
         payload: Some(cache_payload),
     };
 
-    // Assert structural schema and payload integrity constraints
     assert_eq!(cache_point.id, 1);
     if let Some(payload) = cache_point.payload {
         match payload.get("cached_response").unwrap() {
@@ -54,7 +52,6 @@ fn test_cosine_similarity_identical() {
     let v2 = vec![3.0, 4.0, 5.0];
     let similarity = cosine_similarity(&v1, &v2).unwrap();
 
-    // Integrate an analytical epsilon bound to safely bypass dynamic floating-point rounding errors
     assert!((similarity - 1.0).abs() < 1e-5);
 }
 

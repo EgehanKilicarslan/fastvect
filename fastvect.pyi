@@ -1,21 +1,19 @@
 # fastvect.pyi
 from typing import Literal
 
-# Supported distance metric literals mapped precisely across FFI bridges
 SupportedMetrics = Literal["cosine", "dot_product", "euclidean", "dot", "l2"]
 
 class VectorStorage:
     """
-    Qdrant-inspired high-performance embedded Vector Storage and Search engine.
+    High-performance embedded Vector Storage and Search engine.
 
-    Powered by a robust Rust core, managing synchronized transactional memory states,
-    opportunistic macro/micro HNSW graph index routing, and zero-overhead Postcard serialization.
+    Powered by an optimized Rust core managing synchronized memory states,
+    HNSW graph index routing pipelines, and compressed binary state serialization.
     """
 
     def __init__(self) -> None:
         """
-        Instantiates an isolated, production-grade VectorStorage workspace environment.
-        Allocates thread-safe data partitions and pre-configures HNSW hyper-parameters.
+        Instantiates an empty synchronized VectorStorage workspace partition.
         """
         ...
 
@@ -26,15 +24,54 @@ class VectorStorage:
         payload: dict[str, str | int | float] | None = None,
     ) -> None:
         """
-        Universally inserts or updates a coordinate entity embedding paired with structured metadata.
+        Inserts or updates a high-dimensional vector entity paired with payload metadata.
 
-        This operation triggers atomic mutations across internal storage pools and schedules
-        immediate bi-directional link weaving within the active HNSW graph hierarchies.
+        Clears historical tombstone markers matching the identifier if the key undergoes
+        re-insertion tracks.
 
         Args:
-            point_id: Unique 64-bit unsigned tracking key.
+            point_id: Unique unsigned 64-bit entity key identifier.
             vector: High-dimensional raw floating-point coordinate array.
-            payload: Optional unstructured dictionary mapping string keys to polymorphic primitives.
+            payload: Optional dictionary mapping string keys to polymorphic primitive values.
+        """
+        ...
+
+    def exists(self, point_id: int) -> bool:
+        """
+        Validates if a target data key exists inside the storage memory pool.
+
+        Args:
+            point_id: Unique unsigned 64-bit entity key identifier.
+
+        Returns:
+            True if the entity is registered and has not been soft-deleted via tombstones.
+        """
+        ...
+
+    def count(self, tenant_id: str | None = None) -> int:
+        """
+        Extracts total records active within specified boundary contexts under lock-free states.
+
+        Args:
+            tenant_id: Optional string key targeting a specific isolated workspace tenant.
+
+        Returns:
+            Total count of live records active within the partition pool.
+        """
+        ...
+
+    def delete(self, point_id: int) -> bool:
+        """
+        Places a transactional tombstone bit marker flagging an element as deleted.
+
+        Executes a soft-delete mutation by updating internal tracking states without
+        corrupting active HNSW graph connection topologies.
+
+        Args:
+            point_id: Unique unsigned 64-bit entity key identifier to mark for deletion.
+
+        Returns:
+            True if the object was successfully found and marked for deletion.
         """
         ...
 
@@ -46,20 +83,19 @@ class VectorStorage:
         tenant_id: str | None = None,
     ) -> list[tuple[int, float]]:
         """
-        Searches the high-dimensional vector space to extract the Top-K nearest neighbors.
+        Searches the high-dimensional vector space using dynamic execution routing paths.
 
-        Dynamically routes queries via exact linear $O(N)$ brute-force sweeps or ultra-fast
-        logarithmic $O(\\log N)$ HNSW hierarchical graph traversals depending on data volume thresholds.
-        Enforces single-stage metadata pre-filtering if tenancy constraints are assigned.
+        Evaluates volume thresholds to route lookups through precise linear KNN sweeps
+        or ultra-fast logarithmic HNSW hierarchical graph traversals.
 
         Args:
-            query_vector: Analytical float coordinates used as the lookup search target.
-            limit: Total result count capacity boundary depth (Top-K matching limits).
-            metric: Proximity formula token. Supported configurations: 'cosine', 'dot_product', 'euclidean'.
-            tenant_id: Optional identification tag string used to enforce secure workspace isolation.
+            query_vector: High-dimensional source list coordinate array used as the lookup target.
+            limit: Total capacity depth matching threshold boundaries (Top-K results).
+            metric: Spatial distance metric formula used to compute similarity scores.
+            tenant_id: Optional string token used to restrict queries to isolated workspaces.
 
         Returns:
-            A ordered list of records matching the schema layout: `[(Point ID, Metric Match Score), ...]`
+            An ordered list mapping proximity matches: `[(Point ID, Similarity Score), ...]`
         """
         ...
 
@@ -71,17 +107,16 @@ class VectorStorage:
         tenant_id: str | None = None,
     ) -> list[list[tuple[int, float]]]:
         """
-        Executes concurrent high-dimensional batch vector lookups across available hardware processing units.
+        Executes concurrent high-dimensional batch vector lookups via multi-threaded maps.
 
-        This engine utilizes a thread-safe parallel processing map (Rayon) to bypass Python runtime loop
-        overheads and GIL bottlenecks. It drives multi-tenant graph filtering routines simultaneously
-        across the active hardware threads.
+        Bypasses Python runtime loop overheads and GIL bottlenecks by driving multi-tenant graph
+        filtering routines simultaneously across available hardware processing threads.
 
         Args:
-            query_vectors: A nested list of multiple analytical float matrix coordinates to process concurrently.
-            limit: The targeted depth capacity matching threshold (Top-K) to extract per discrete query sequence.
-            metric: Proximity formula token. Supported configurations: 'cosine', 'dot_product', 'euclidean'.
-            tenant_id: Optional string token used to restrict queries to specific isolated tenancy environments.
+            query_vectors: A nested list containing multiple query vector arrays to evaluate.
+            limit: Total capacity depth matching threshold boundaries per query (Top-K results).
+            metric: Spatial distance metric formula used to compute similarity scores.
+            tenant_id: Optional string token used to restrict queries to isolated workspaces.
 
         Returns:
             A nested list containing ordered matching records arrays: `[[(Point ID, Score), ...], ...]`
@@ -90,13 +125,10 @@ class VectorStorage:
 
     def save(self, path: str) -> None:
         """
-        Commits the active in-memory database segment snapshot directly to a localized binary asset.
-
-        Utilizes a highly compressed, zero-copy serialization scheme via Postcard with sequential
-        buffered disk writer pipelines.
+        Commits running in-memory database segment snapshots directly to a localized binary asset.
 
         Args:
-            path: Target local file system path where the output checkpoint asset should be written.
+            path: Target local file system path where the checkpoint asset should be written.
 
         Raises:
             IOError: If platform storage access rights block file descriptor synchronization workflows.
@@ -105,9 +137,7 @@ class VectorStorage:
 
     def load(self, path: str) -> None:
         """
-        Loads and completely rehydrates a pre-existing storage binary checkpoint file back into memory.
-
-        Acquires exclusive process locks to clear current states and perform a zero-leak memory hot-swap.
+        Loads and rehydrates a pre-existing storage binary checkpoint file back into memory.
 
         Args:
             path: Target local binary backup snapshot location to fetch and parse.

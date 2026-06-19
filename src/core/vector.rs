@@ -1,7 +1,7 @@
 // src/core/vector.rs
 
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Represents the polymorphic primitive variants permitted inside the schema-less unstructured metadata payload dictionary.
 ///
@@ -22,7 +22,7 @@ pub enum PayloadValue {
 /// A structured, concurrent-safe dictionary hashmap binding string identifiers to polymorphic metadata values.
 ///
 /// It acts as the secondary storage schema mapping attributes to dynamic indices for conditional logical filtering.
-pub type Payload = HashMap<String, PayloadValue>;
+pub type Payload = FxHashMap<String, PayloadValue>;
 
 /// The foundational atomic architectural entity tracked within the vector index cluster.
 ///

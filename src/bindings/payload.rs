@@ -3,7 +3,7 @@
 use crate::{Payload, PayloadValue};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyFloat, PyInt, PyString};
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 /// Safely parses a Python dictionary into a native Rust polymorphic `Payload` structure.
 ///
@@ -18,20 +18,20 @@ use std::collections::HashMap;
 /// # Parameters
 /// * `dict` - A reference pointer targeting a Python dictionary (`PyDict`) bound to the current GIL lifetime scope.
 ///
+/// # Returns
+/// A parsing result containing the populated native `Payload` hashmap configuration.
+///
 /// # Errors
 /// Returns a `PyResult::Err` containing a virtual `TypeError` if extraction tokens encounter corrupted memory formatting.
 pub fn parse_python_payload(dict: &Bound<'_, PyDict>) -> PyResult<Payload> {
-    let mut map = HashMap::new();
+    let mut map = FxHashMap::default();
 
     for (key, value) in dict.iter() {
-        // Extract the map string key safely across runtime boundaries
         let k_str = key.extract::<String>()?;
 
-        // Explicit type matching matching Qdrant payload flexibility
         if value.is_instance_of::<PyString>() {
             let p_str = value.extract::<String>()?;
 
-            // Boundary length heuristic separating categorizations from unstructured text models
             if p_str.len() <= 64 {
                 map.insert(k_str, PayloadValue::Keyword(p_str));
             } else {
